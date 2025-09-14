@@ -1,0 +1,9 @@
+streamlit
+moralis
+pandas
+plotly
+numpy
+requests
+joblib
+python-dotenv
+dune-client
