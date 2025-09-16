@@ -1219,26 +1219,51 @@ def get_health_status_display(score: float) -> Tuple[str, str, str]:
         return "Critical", "health-score-critical", "🔴"
 
 def display_data_status(fetcher: RoninDataFetcher):
-    """Display data source status indicators."""
+    """Display data source status indicators with detailed error info."""
     status = fetcher.get_data_status()
     
     coingecko_status = status['coingecko_status']
     dune_status = status['dune_status']
     
-    # Status display logic
-    cg_class = "status-live" if coingecko_status == "success" else "status-fallback" if "fallback" in str(coingecko_status) else "status-error"
-    dune_class = "status-live" if dune_status == "success" else "status-fallback" if "fallback" in str(dune_status) else "status-error"
+    # Detailed status mapping
+    status_details = {
+        'success': ('Live', 'status-live', '🟢'),
+        'fallback': ('Demo', 'status-fallback', '🟡'),
+        'missing_key': ('No API Key', 'status-error', '🔴'),
+        'request_failed': ('Network Error', 'status-error', '🔴'),
+        'invalid_data': ('Data Error', 'status-error', '🔴'),
+        'missing_library': ('Missing Library', 'status-error', '🔴'),
+        'query_failed': ('Query Failed', 'status-error', '🔴'),
+        'unknown_error': ('Unknown Error', 'status-error', '🔴')
+    }
     
-    cg_text = "Live" if coingecko_status == "success" else "Backup" if "fallback" in str(coingecko_status) else "Error"
-    dune_text = "Live" if dune_status == "success" else "Demo" if "fallback" in str(dune_status) else "Error"
+    cg_text, cg_class, cg_emoji = status_details.get(coingecko_status, ('Error', 'status-error', '🔴'))
+    dune_text, dune_class, dune_emoji = status_details.get(dune_status, ('Error', 'status-error', '🔴'))
     
     st.markdown(f"""
     <div style="text-align: center; margin-bottom: 20px;">
-        <span>📊 CoinGecko: <span class="status-indicator {cg_class}">{cg_text}</span></span>
-        <span style="margin-left: 20px;">⛓️ Dune: <span class="status-indicator {dune_class}">{dune_text}</span></span>
+        <span>{cg_emoji} CoinGecko: <span class="status-indicator {cg_class}">{cg_text}</span></span>
+        <span style="margin-left: 20px;">{dune_emoji} Dune: <span class="status-indicator {dune_class}">{dune_text}</span></span>
         <span style="margin-left: 20px; color: #888; font-size: 0.9em;">Last Update: {status['last_update']}</span>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Show troubleshooting info if there are errors
+    if coingecko_status != 'success' or dune_status != 'success':
+        with st.expander("🔧 API Troubleshooting", expanded=False):
+            if coingecko_status == 'missing_key':
+                st.warning("CoinGecko API key not found. Add COINGECKO_PRO_API_KEY to your .env file.")
+            elif coingecko_status == 'request_failed':
+                st.error("CoinGecko API request failed. Check your internet connection and API key validity.")
+            
+            if dune_status == 'missing_key':
+                st.warning("Dune API key not found. Add DEFI_JOSH_DUNE_QUERY_API_KEY to your .env file.")
+            elif dune_status == 'missing_library':
+                st.error("dune-client library missing. Run: pip install dune-client")
+            elif dune_status == 'query_failed':
+                st.error("Dune queries failed. Check API key permissions and network connection.")
+            
+            st.info("💡 Dashboard works with demo data when APIs are unavailable. Real data will load automatically once APIs are configured correctly.")
 
 # Initialize data fetcher
 fetcher = get_data_fetcher()
@@ -1326,26 +1351,79 @@ section = st.radio(
     label_visibility="collapsed"
 )
 
-# Load all data with progress indicator
-with st.spinner("Loading ecosystem data..."):
-    coingecko_data = fetcher.fetch_coingecko_data()
-    games_overall = fetcher.fetch_dune_query('games_overall_activity')
-    games_daily = fetcher.fetch_dune_query('games_daily_activity')
-    ronin_daily = fetcher.fetch_dune_query('ronin_daily_activity')
-    activation_retention = fetcher.fetch_dune_query('user_activation_retention')
-    ron_holders = fetcher.fetch_dune_query('ron_current_holders')
-    ron_segmented_holders = fetcher.fetch_dune_query('ron_segmented_holders')
-    wron_katana_pairs = fetcher.fetch_dune_query('wron_katana_pairs')
-    wron_whale_tracking = fetcher.fetch_dune_query('wron_whale_tracking')
-    wron_volume_liquidity = fetcher.fetch_dune_query('wron_volume_liquidity')
-    wron_hourly_activity = fetcher.fetch_dune_query('wron_hourly_activity')
-    wron_weekly_segmentation = fetcher.fetch_dune_query('wron_weekly_segmentation')
+# Always load core data but with better error handling
+@st.cache_data(ttl=3600, show_spinner=True)
+def load_all_data():
+    """Load all data with proper error handling and timeout."""
+    data = {}
+    
+    # Load CoinGecko data (quick)
+    try:
+        data['coingecko'] = fetcher.fetch_coingecko_data()
+    except Exception as e:
+        st.warning(f"CoinGecko API failed: {str(e)}")
+        data['coingecko'] = fetcher._get_coingecko_fallback_data()
+    
+    # Load only essential Dune queries to reduce load time
+    essential_queries = {
+        'ronin_daily_activity': 'Network activity data',
+        'games_overall_activity': 'Gaming overview data', 
+        'ron_segmented_holders': 'Token holder data'
+    }
+    
+    for query_key, description in essential_queries.items():
+        try:
+            with st.spinner(f"Loading {description}..."):
+                result = fetcher.fetch_dune_query(query_key)
+                data[query_key] = result
+                if result is None or result.empty:
+                    st.info(f"Using demo data for {description}")
+        except Exception as e:
+            st.error(f"Failed to load {description}: {str(e)}")
+            data[query_key] = fetcher._get_dune_fallback_data(query_key)
+    
+    return data
+
+# Load data with progress tracking
+with st.spinner("Loading essential data..."):
+    all_data = load_all_data()
+    
+    # Extract data
+    coingecko_data = all_data['coingecko']
+    ronin_daily = all_data.get('ronin_daily_activity')
+    games_overall = all_data.get('games_overall_activity') 
+    ron_segmented_holders = all_data.get('ron_segmented_holders')
+
+# Load additional data only for specific sections
+@st.cache_data(ttl=3600)
+def load_section_data(section_name):
+    """Load additional data for specific sections."""
+    if section_name == "Gaming Economy":
+        return {
+            'games_daily': fetcher.fetch_dune_query('games_daily_activity'),
+            'activation_retention': fetcher.fetch_dune_query('user_activation_retention')
+        }
+    elif section_name == "Token Intelligence":
+        return {
+            'wron_whale_tracking': fetcher.fetch_dune_query('wron_whale_tracking'),
+            'wron_volume_liquidity': fetcher.fetch_dune_query('wron_volume_liquidity'),
+            'wron_hourly_activity': fetcher.fetch_dune_query('wron_hourly_activity')
+        }
+    elif section_name == "User Analytics":
+        return {
+            'wron_weekly_segmentation': fetcher.fetch_dune_query('wron_weekly_segmentation'),
+            'activation_retention': fetcher.fetch_dune_query('user_activation_retention')
+        }
+    return {}
+
+# Load section-specific data
+section_data = load_section_data(section)
 
 # === NETWORK OVERVIEW SECTION ===
 if section == "Network Overview":
     st.markdown("## 🌐 Network Health & Performance Dashboard")
     
-    # Calculate analytics
+    # Calculate analytics with available data
     network_health_score = RoninAnalytics.calculate_network_health_score(ronin_daily, coingecko_data, games_overall)
     game_dominance_index = RoninAnalytics.calculate_game_dominance_index(games_overall)
     ecosystem_diversity = RoninAnalytics.calculate_ecosystem_diversity_score(games_overall)
@@ -1673,6 +1751,10 @@ if section == "Network Overview":
 elif section == "Gaming Economy":
     st.markdown("## 🎮 Gaming Economy & Player Analytics Dashboard")
     
+    # Get section-specific data
+    games_daily = section_data.get('games_daily')
+    activation_retention = section_data.get('activation_retention')
+    
     # Gaming Overview Metrics
     if games_overall is not None and not games_overall.empty:
         total_gaming_users = games_overall['unique_users'].sum()
@@ -1932,6 +2014,11 @@ elif section == "Gaming Economy":
 # === TOKEN INTELLIGENCE SECTION ===
 elif section == "Token Intelligence":
     st.markdown("## 💰 Token Intelligence & DeFi Analytics Dashboard")
+    
+    # Get section-specific data
+    wron_whale_tracking = section_data.get('wron_whale_tracking')
+    wron_volume_liquidity = section_data.get('wron_volume_liquidity') 
+    wron_hourly_activity = section_data.get('wron_hourly_activity')
     
     # Token metrics overview
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -2290,6 +2377,10 @@ elif section == "Token Intelligence":
 # === USER ANALYTICS SECTION ===
 elif section == "User Analytics":
     st.markdown("## 👥 User Behavior & Segmentation Analytics")
+    
+    # Get section-specific data
+    wron_weekly_segmentation = section_data.get('wron_weekly_segmentation')
+    activation_retention = section_data.get('activation_retention')
     
     # User segment overview
     if ron_segmented_holders is not None and not ron_segmented_holders.empty:
