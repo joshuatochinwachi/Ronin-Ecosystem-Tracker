@@ -1,692 +1,1215 @@
-#!/usr/bin/env python3
 """
-Ronin Ecosystem Analytics Dashboard
-A comprehensive real-time analytics platform for the Ronin blockchain gaming economy.
-
-Features:
-- Network health monitoring with performance scoring
-- Gaming economy analytics with user behavior tracking
-- Token flow intelligence and whale tracking
-- Interactive visualizations with Plotly
-- Real-time data from CoinGecko Pro API & Dune Analytics
-
-Author: Analytics Team
-Date: 2025
+Ronin Ecosystem Tracker - Complete Dashboard
+A comprehensive real-time analytics dashboard for Ronin blockchain gaming economy
 """
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import numpy as np
 import requests
 import os
 import time
-import logging
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+import hashlib
 import joblib
-from dotenv import load_dotenv
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional, Union
+import logging
 from dune_client.client import DuneClient
-import threading
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Global cache
-_GLOBAL_CACHE = {}
-_CACHE_TTL = 86400  # 24 hours
-_cache_lock = threading.Lock()
-
-def is_cache_valid(cache_key):
-    with _cache_lock:
-        if cache_key not in _GLOBAL_CACHE:
-            return False
-        cache_time, _ = _GLOBAL_CACHE[cache_key]
-        return time.time() - cache_time < _CACHE_TTL
-
-def get_cached_data(cache_key):
-    with _cache_lock:
-        if is_cache_valid(cache_key):
-            _, data = _GLOBAL_CACHE[cache_key]
-            return data
-        return None
-
-def set_cached_data(cache_key, data):
-    with _cache_lock:
-        _GLOBAL_CACHE[cache_key] = (time.time(), data)
-
-class RoninDataFetcher:
-    """Main class for fetching and managing Ronin ecosystem data."""
-    
-    def __init__(self):
-        """Initialize the data fetcher with configuration."""
-        load_dotenv()
-        
-        # API Configuration
-        self.api_keys = self._load_api_keys()
-        
-        # Data Configuration
-        self.data_dir = Path("data")
-        self.data_dir.mkdir(exist_ok=True)
-        
-        # Query Configuration
-        self.dune_queries = self._load_query_config()
-        
-        # Cache Configuration
-        self.cache_ttl = 86400  # 24 hours
-        self.coingecko_delay = 1.2
-        self.dune_delay = 2.0
-        self.max_retries = 3
-        self.retry_delay = 5
-        
-        # Session management
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'RoninEcosystemTracker/1.0',
-            'Accept': 'application/json'
-        })
-    
-    def _load_api_keys(self) -> Dict[str, str]:
-        """Load API keys with Streamlit compatibility."""
-        keys = {'dune': None, 'coingecko': None}
-        
-        try:
-            # Primary: Streamlit secrets (for deployed app)
-            keys['dune'] = st.secrets.get("DEFI_JOSH_DUNE_QUERY_API_KEY")
-            keys['coingecko'] = st.secrets.get("COINGECKO_PRO_API_KEY")
-        except:
-            # Fallback: Environment variables (for local development)
-            keys['dune'] = os.getenv("DEFI_JOSH_DUNE_QUERY_API_KEY")
-            keys['coingecko'] = os.getenv("COINGECKO_PRO_API_KEY")
-        
-        return keys
-    
-    def _load_query_config(self) -> Dict[str, Dict[str, Any]]:
-        """Load Dune query configuration."""
-        return {
-            'games_overall_activity': {
-                'id': 5779698,
-                'description': 'Top Game Contracts Overall Activity',
-                'filename': 'games_overall_activity.joblib'
-            },
-            'games_daily_activity': {
-                'id': 5781579,
-                'description': 'Top Game Contracts Daily Activity',
-                'filename': 'games_daily_activity.joblib'
-            },
-            'ronin_daily_activity': {
-                'id': 5779439,
-                'description': 'Daily Ronin Network Activity',
-                'filename': 'ronin_daily_activity.joblib'
-            },
-            'user_activation_retention': {
-                'id': 5783320,
-                'description': 'User Weekly Activation and Retention',
-                'filename': 'ronin_users_weekly_activation_and_retention.joblib'
-            },
-            'ron_current_holders': {
-                'id': 5783623,
-                'description': 'RON Current Holders',
-                'filename': 'ron_current_holders.joblib'
-            },
-            'ron_segmented_holders': {
-                'id': 5785491,
-                'description': 'RON Segmented Holders',
-                'filename': 'ron_current_segmented_holders.joblib'
-            },
-            'wron_katana_pairs': {
-                'id': 5783967,
-                'description': 'WRON Trading Pairs on Katana DEX',
-                'filename': 'wron_active_trade_pairs_on_Katana.joblib'
-            },
-            'wron_whale_tracking': {
-                'id': 5784215,
-                'description': 'WRON Whale Tracking',
-                'filename': 'wron_whale_tracking_on_Katana.joblib'
-            },
-            'wron_volume_liquidity': {
-                'id': 5784210,
-                'description': 'WRON Trading Volume & Liquidity',
-                'filename': 'WRON_Trading_Volume_Liquidity_Flow_on_Katana.joblib'
-            },
-            'wron_hourly_activity': {
-                'id': 5785066,
-                'description': 'WRON Hourly Trading Activity',
-                'filename': 'WRON_Trading_by_hour_of_day_on_Katana.joblib'
-            },
-            'wron_weekly_segmentation': {
-                'id': 5785149,
-                'description': 'WRON Weekly User Segmentation',
-                'filename': 'WRON_weekly_trade_volume_and_user_segmentation_on_Katana.joblib'
-            }
-        }
-    
-    def fetch_coingecko_data(self) -> Optional[Dict[str, Any]]:
-        """Fetch RON token data from CoinGecko."""
-        cache_key = 'coingecko_ron_data'
-        cached_data = get_cached_data(cache_key)
-        if cached_data:
-            return cached_data
-        
-        if not self.api_keys['coingecko']:
-            return self._get_coingecko_fallback_data()
-        
-        try:
-            url = "https://pro-api.coingecko.com/api/v3/coins/ronin"
-            headers = {"x-cg-pro-api-key": self.api_keys['coingecko']}
-            
-            response = self.session.get(url, headers=headers, timeout=30)
-            response.raise_for_status()
-            
-            ron_data = response.json()
-            processed_data = self._process_coingecko_data(ron_data)
-            
-            set_cached_data(cache_key, processed_data)
-            return processed_data
-            
-        except Exception as e:
-            logger.warning(f"CoinGecko API failed: {e}")
-            return self._get_coingecko_fallback_data()
-    
-    def _process_coingecko_data(self, ron_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Process CoinGecko data."""
-        market_data = ron_data.get("market_data", {})
-        
-        return {
-            'name': ron_data.get('name', 'Ronin'),
-            'symbol': ron_data.get('symbol', 'RON'),
-            'price_usd': market_data.get('current_price', {}).get('usd', 0),
-            'market_cap_usd': market_data.get('market_cap', {}).get('usd', 0),
-            'volume_24h_usd': market_data.get('total_volume', {}).get('usd', 0),
-            'circulating_supply': market_data.get('circulating_supply', 0),
-            'total_supply': market_data.get('total_supply', 0),
-            'price_change_24h_pct': market_data.get('price_change_percentage_24h', 0),
-            'price_change_7d_pct': market_data.get('price_change_percentage_7d', 0),
-            'market_cap_rank': market_data.get('market_cap_rank', 0),
-            'last_updated': datetime.now().isoformat()
-        }
-    
-    def _get_coingecko_fallback_data(self) -> Dict[str, Any]:
-        """Fallback data for CoinGecko."""
-        return {
-            'name': 'Ronin',
-            'symbol': 'RON',
-            'price_usd': 2.15,
-            'market_cap_usd': 700000000,
-            'volume_24h_usd': 45000000,
-            'circulating_supply': 325000000,
-            'total_supply': 1000000000,
-            'price_change_24h_pct': -2.5,
-            'price_change_7d_pct': 8.2,
-            'market_cap_rank': 85,
-            'last_updated': datetime.now().isoformat(),
-            'data_source': 'fallback'
-        }
-    
-    def fetch_dune_query(self, query_key: str) -> Optional[pd.DataFrame]:
-        """Fetch data from Dune query."""
-        cache_key = f'dune_{query_key}'
-        cached_data = get_cached_data(cache_key)
-        if cached_data is not None:
-            return cached_data
-        
-        if not self.api_keys['dune'] or query_key not in self.dune_queries:
-            return self._get_dune_fallback_data(query_key)
-        
-        try:
-            from dune_client.client import DuneClient
-            
-            query_config = self.dune_queries[query_key]
-            dune = DuneClient(self.api_keys['dune'])
-            query_result = dune.get_latest_result(query_config['id'])
-            
-            if not query_result or not query_result.result or not query_result.result.rows:
-                return self._get_dune_fallback_data(query_key)
-            
-            df = pd.DataFrame(query_result.result.rows)
-            set_cached_data(cache_key, df)
-            return df
-            
-        except ImportError:
-            logger.warning("dune_client not installed")
-            return self._get_dune_fallback_data(query_key)
-        except Exception as e:
-            logger.warning(f"Dune query {query_key} failed: {e}")
-            return self._get_dune_fallback_data(query_key)
-    
-    def _get_dune_fallback_data(self, query_key: str) -> pd.DataFrame:
-        """Generate realistic fallback data for each query type."""
-        if query_key == 'games_overall_activity':
-            return pd.DataFrame({
-                'contract_address': ['0x123...', '0x456...', '0x789...'],
-                'project_name': ['Axie Infinity', 'The Machines Arena', 'Pixels'],
-                'total_transactions': [15000000, 2500000, 1200000],
-                'unique_users': [2800000, 180000, 95000],
-                'total_gas_used': [45000000000, 8500000000, 3200000000]
-            })
-        elif query_key == 'ronin_daily_activity':
-            dates = pd.date_range(end=datetime.now(), periods=30, freq='D')
-            return pd.DataFrame({
-                'date': dates,
-                'daily_transactions': np.random.randint(800000, 1200000, 30),
-                'active_addresses': np.random.randint(180000, 250000, 30),
-                'avg_gas_price_gwei': np.random.uniform(0.1, 0.5, 30),
-                'total_gas_used': np.random.randint(15000000000, 25000000000, 30)
-            })
-        elif query_key == 'ron_segmented_holders':
-            return pd.DataFrame({
-                'balance_range': ['0-1 RON', '1-10 RON', '10-100 RON', '100-1K RON', '1K-10K RON', '10K+ RON'],
-                'holders': [125000, 85000, 45000, 18000, 3500, 850],
-                'total_balance': [45000, 420000, 2800000, 8500000, 15600000, 28400000]
-            })
-        elif query_key == 'wron_whale_tracking':
-            return pd.DataFrame({
-                'trader_address': ['0xabc...', '0xdef...', '0x123...'],
-                'total_volume_usd': [2500000, 1800000, 950000],
-                'trade_count': [145, 89, 67],
-                'avg_trade_size_usd': [17241, 20225, 14179],
-                'profit_loss_usd': [125000, -45000, 78000]
-            })
-        else:
-            return pd.DataFrame()
-
 # Page configuration
 st.set_page_config(
     page_title="Ronin Ecosystem Tracker",
-    page_icon="⚡",
+    page_icon="🎮",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Enhanced CSS styling
+# Custom CSS for styling
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
-    
-    .main {
-        font-family: 'Inter', sans-serif;
+    .main-header {
+        background: linear-gradient(90deg, #1f77b4 0%, #17becf 100%);
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        text-align: center;
     }
     
-    .stRadio > div {
-        display: flex;
-        justify-content: center;
-        margin-bottom: 30px;
-        gap: 15px;
-    }
-    
-    .stRadio > div > label {
-        font-size: 16px;
-        font-weight: 600;
-        color: #FFFFFF;
-        background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%);
-        padding: 12px 24px;
-        border-radius: 25px;
-        border: 2px solid transparent;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        cursor: pointer;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        box-shadow: 0 4px 15px rgba(255, 107, 53, 0.3);
-    }
-    
-    .stRadio > div > label:hover {
-        background: linear-gradient(135deg, #00D4FF 0%, #FF6B35 100%);
-        transform: translateY(-3px);
-        box-shadow: 0 8px 25px rgba(0, 212, 255, 0.4);
-        border-color: #00D4FF;
+    .main-header h1 {
+        color: white;
+        margin: 0;
+        font-size: 2.5rem;
     }
     
     .metric-card {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-        padding: 25px;
-        border-radius: 15px;
-        border: 1px solid rgba(255, 107, 53, 0.3);
-        margin: 15px 0;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        backdrop-filter: blur(10px);
-        transition: all 0.3s ease;
-    }
-    
-    .metric-card:hover {
-        border-color: #00D4FF;
-        box-shadow: 0 12px 40px rgba(0, 212, 255, 0.2);
-        transform: translateY(-2px);
-    }
-    
-    .health-score-excellent {
-        color: #00FF88;
-        font-weight: 700;
-        text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
-    }
-    
-    .health-score-good {
-        color: #4ECDC4;
-        font-weight: 700;
-    }
-    
-    .health-score-warning {
-        color: #FFB347;
-        font-weight: 700;
-    }
-    
-    .health-score-critical {
-        color: #FF6B6B;
-        font-weight: 700;
-        text-shadow: 0 0 10px rgba(255, 107, 107, 0.5);
-    }
-    
-    .insight-box {
-        background: linear-gradient(135deg, rgba(255, 107, 53, 0.1) 0%, rgba(0, 212, 255, 0.1) 100%);
-        border-left: 4px solid #00D4FF;
+        background: white;
         padding: 20px;
         border-radius: 10px;
-        margin: 20px 0;
-        font-style: italic;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin: 10px 0;
     }
     
-    .warning-box {
-        background: linear-gradient(135deg, rgba(255, 181, 71, 0.1) 0%, rgba(255, 107, 107, 0.1) 100%);
-        border-left: 4px solid #FFB347;
-        padding: 15px;
-        border-radius: 10px;
-        margin: 15px 0;
+    .alert-high {
+        border-left: 4px solid #d62728;
+        background-color: #ffe6e6;
+        padding: 10px;
+        margin: 5px 0;
+    }
+    
+    .alert-medium {
+        border-left: 4px solid #ff7f0e;
+        background-color: #fff3e6;
+        padding: 10px;
+        margin: 5px 0;
+    }
+    
+    .alert-low {
+        border-left: 4px solid #2ca02c;
+        background-color: #e6ffe6;
+        padding: 10px;
+        margin: 5px 0;
+    }
+    
+    @media (max-width: 768px) {
+        .main-header h1 {
+            font-size: 1.8rem;
+        }
+        .metric-card {
+            padding: 15px;
+        }
+    }
+    
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 24px;
+        justify-content: center;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: #f0f2f6;
+        border-radius: 25px;
+        padding: 10px 20px;
+        color: #1f77b4;
+        font-weight: 600;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background-color: #1f77b4;
+        color: white;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize data fetcher
-@st.cache_resource
-def get_data_fetcher():
-    return RoninDataFetcher()
-
-fetcher = get_data_fetcher()
-
-# Sidebar
-with st.sidebar:
-    st.markdown("""
-    <div style="background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%); 
-                padding: 20px; border-radius: 15px; margin-bottom: 25px; text-align: center;">
-        <h2 style="color: #FFFFFF; margin: 0; font-weight: 700;">⚡ Ronin Tracker</h2>
-        <p style="color: #E0E0E0; margin: 5px 0 0 0; font-size: 0.9em;">Gaming Economy Intelligence</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("""
-    ### 🎮 Ronin Blockchain Overview
-    
-    Ronin is a **gaming-focused sidechain** built by Sky Mavis for Axie Infinity and the broader Web3 gaming ecosystem.
-    
-    **Key Features:**
-    - ⚡ **Fast & Cheap:** Sub-second transactions, minimal fees
-    - 🎯 **Gaming-Optimized:** Built specifically for blockchain games
-    - 🌉 **Bridge Connected:** Seamless Ethereum integration
-    - 🏛️ **PoA Consensus:** Proof of Authority for speed
-    
-    ---
-    
-    ### 📊 This Dashboard Tracks:
-    
-    **🌐 Network Health**
-    - Real-time transaction throughput
-    - Network congestion analysis
-    - Bridge activity monitoring
-    - Performance scoring system
-    
-    **🎮 Gaming Economy**
-    - Daily/monthly active players
-    - User spending by game category
-    - Player retention metrics
-    - Game performance rankings
-    
-    **💰 Token Intelligence**
-    - RON/WRON flow distribution
-    - Whale wallet tracking
-    - DeFi liquidity analysis
-    - Cross-sector engagement
-    
-    **👥 User Behavior**
-    - Wallet classification & segmentation
-    - Spending pattern analysis
-    - Gaming vs DeFi user behavior
-    - Retention & activation trends
-    
-    ---
-    
-    **💡 Key Insight:** Ronin represents the convergence of traditional gaming and DeFi, creating unique economic dynamics where gaming activity drives token utility and liquidity.
-    """)
-
-# Main header
-st.markdown("""
-<div style="background: linear-gradient(135deg, #00D4FF 0%, #FF6B35 30%, #F7931E 70%, #FF1744 100%); 
-           padding: 30px; border-radius: 20px; margin-bottom: 40px; text-align: center;
-           box-shadow: 0 10px 40px rgba(255, 107, 53, 0.4);">
-    <h1 style="color: white; margin: 0; font-size: 3em; font-weight: 700; 
-               text-shadow: 2px 2px 8px rgba(0,0,0,0.5);">
-        ⚡ Ronin Ecosystem Tracker
-    </h1>
-    <p style="color: #E0E0E0; margin: 15px 0 0 0; font-size: 1.3em; font-weight: 400;">
-        Real-time Analytics for Ronin Gaming Economy & Network Intelligence
-    </p>
-    <p style="color: #B0B0B0; margin: 10px 0 0 0; font-size: 1em;">
-        Network monitoring • Gaming analytics • Token flows • User intelligence
-    </p>
-</div>
-""", unsafe_allow_html=True)
-
-# Navigation
-section = st.radio(
-    "",
-    ["Network Overview", "Gaming Economy", "Token Intelligence", "User Analytics"],
-    horizontal=True
-)
-
-# Load data
-coingecko_data = fetcher.fetch_coingecko_data()
-games_overall = fetcher.fetch_dune_query('games_overall_activity')
-ronin_daily = fetcher.fetch_dune_query('ronin_daily_activity')
-ron_holders = fetcher.fetch_dune_query('ron_segmented_holders')
-whale_data = fetcher.fetch_dune_query('wron_whale_tracking')
-
-# === NETWORK OVERVIEW SECTION ===
-if section == "Network Overview":
-    st.markdown("## 🌐 Network Health & Performance Dashboard")
-    
-    # Network Health Score Calculation
-    def calculate_network_health_score(daily_data, token_data):
-        score = 100
+# Configuration
+class Config:
+    def __init__(self):
+        self.dune_api_key = os.getenv("DEFI_JOSH_DUNE_QUERY_API_KEY")
+        self.coingecko_api_key = os.getenv("COINGECKO_PRO_API_KEY")
         
-        if daily_data is not None and not daily_data.empty and len(daily_data) >= 7:
-            recent_data = daily_data.tail(7)
+        # Dune query IDs
+        self.dune_queries = {
+            'games_overall_activity': 5779698,
+            'games_daily_activity': 5781579,
+            'ronin_daily_activity': 5779439,
+            'user_activation_retention': 5783320,
+            'ron_current_holders': 5783623,
+            'ron_segmented_holders': 5785491,
+            'wron_active_trade_pairs': 5783967,
+            'wron_whale_tracking': 5784215,
+            'wron_volume_liquidity': 5784210,
+            'wron_trading_hourly': 5785066,
+            'wron_weekly_segmentation': 5785149,
+            'nft_collections': 5792320
+        }
+        
+        self.cache_duration = 24 * 3600  # 24 hours in seconds
+        self.whale_threshold = 50000  # USD
+        
+        if not self.dune_api_key or not self.coingecko_api_key:
+            st.error("Please set DEFI_JOSH_DUNE_QUERY_API_KEY and COINGECKO_PRO_API_KEY in your environment variables")
+
+config = Config()
+
+# Data Manager
+class DataManager:
+    def __init__(self):
+        self.cache_dir = "data"
+        os.makedirs(self.cache_dir, exist_ok=True)
+        
+        if config.dune_api_key:
+            self.dune_client = DuneClient(config.dune_api_key)
+        
+        self.session = requests.Session()
+        if config.coingecko_api_key:
+            self.session.headers.update({'x-cg-pro-api-key': config.coingecko_api_key})
+    
+    def _get_cache_path(self, key: str) -> str:
+        safe_key = hashlib.md5(key.encode()).hexdigest()
+        return os.path.join(self.cache_dir, f"{safe_key}.joblib")
+    
+    def _is_cache_valid(self, filepath: str) -> bool:
+        if not os.path.exists(filepath):
+            return False
+        file_age = time.time() - os.path.getmtime(filepath)
+        return file_age < config.cache_duration
+    
+    def get_cached_data(self, key: str) -> Optional[pd.DataFrame]:
+        filepath = self._get_cache_path(key)
+        if self._is_cache_valid(filepath):
+            try:
+                return joblib.load(filepath)
+            except Exception as e:
+                logger.warning(f"Cache read error for {key}: {e}")
+        return None
+    
+    def cache_data(self, key: str, data: pd.DataFrame) -> None:
+        filepath = self._get_cache_path(key)
+        try:
+            joblib.dump(data, filepath)
+        except Exception as e:
+            logger.warning(f"Cache write error for {key}: {e}")
+    
+    @st.cache_data(ttl=3600)
+    def fetch_ron_market_data(_self) -> dict:
+        try:
+            url = "https://pro-api.coingecko.com/api/v3/coins/ronin"
+            response = _self.session.get(url, timeout=30)
+            response.raise_for_status()
+            data = response.json()
             
-            # Transaction throughput (30 points)
+            market_data = data.get("market_data", {})
+            return {
+                'name': data.get('name'),
+                'symbol': data.get('symbol'),
+                'current_price_usd': market_data.get('current_price', {}).get('usd'),
+                'market_cap_usd': market_data.get('market_cap', {}).get('usd'),
+                'volume_24h_usd': market_data.get('total_volume', {}).get('usd'),
+                'circulating_supply': market_data.get('circulating_supply'),
+                'total_supply': market_data.get('total_supply'),
+                'price_change_24h': market_data.get('price_change_percentage_24h'),
+                'price_change_7d': market_data.get('price_change_percentage_7d'),
+                'last_updated': datetime.now().isoformat()
+            }
+        except Exception as e:
+            logger.error(f"Failed to fetch RON market data: {e}")
+            return {}
+    
+    def fetch_dune_data(self, query_key: str) -> pd.DataFrame:
+        # Check cache first
+        cached = self.get_cached_data(query_key)
+        if cached is not None:
+            return cached
+        
+        # Fetch from API
+        if not hasattr(self, 'dune_client'):
+            return pd.DataFrame()
+        
+        try:
+            query_id = config.dune_queries[query_key]
+            result = self.dune_client.get_latest_result(query_id)
+            df = pd.DataFrame(result.result.rows)
+            
+            # Clean and process data
+            df = self._clean_dataframe(df, query_key)
+            
+            # Cache the result
+            self.cache_data(query_key, df)
+            
+            return df
+        except Exception as e:
+            logger.error(f"Failed to fetch {query_key}: {e}")
+            return pd.DataFrame()
+    
+    def _clean_dataframe(self, df: pd.DataFrame, query_key: str) -> pd.DataFrame:
+        if df.empty:
+            return df
+        
+        # Replace None values
+        df = df.replace([None, 'None'], pd.NA)
+        
+        # Specific cleaning based on data type
+        if query_key == 'games_overall_activity':
+            numeric_cols = ['transaction_count', 'unique_players', 'total_volume_ron_sent_to_game', 'avg_gas_price_in_gwei']
+            for col in numeric_cols:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        
+        elif query_key == 'ronin_daily_activity':
+            if 'day' in df.columns:
+                df['day'] = pd.to_datetime(df['day'], errors='coerce')
+            numeric_cols = ['daily_transactions', 'active_wallets', 'avg_gas_price_in_gwei']
+            for col in numeric_cols:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        
+        elif query_key == 'nft_collections':
+            # Rename columns for consistency
+            column_mapping = {
+                'floor_ron': 'floor_price_ron',
+                'floor_usd': 'floor_price_usd',
+                'volume_ron': 'sales_volume_ron',
+                'volume_usd': 'sales_volume_usd',
+                'royalties_usd': 'royalties_usd',
+                'nft_contract_address': 'contract_address'
+            }
+            df = df.rename(columns=column_mapping)
+            
+            # Calculate total revenue
+            revenue_cols = ['generated platform fees (USD)', 'generated Ronin fees (USD)', 'royalties_usd']
+            if all(col in df.columns for col in revenue_cols):
+                df['total_revenue_usd'] = df[revenue_cols].fillna(0).sum(axis=1)
+        
+        # Fill text columns with 'Unknown'
+        text_cols = df.select_dtypes(include=['object']).columns
+        for col in text_cols:
+            df[col] = df[col].fillna('Unknown')
+        
+        return df
+    
+    def load_all_data(self) -> dict:
+        data = {}
+        
+        # Create progress tracking
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        total_queries = len(config.dune_queries) + 1  # +1 for CoinGecko
+        
+        # Fetch RON market data
+        status_text.text("Fetching RON market data...")
+        data['ron_market'] = self.fetch_ron_market_data()
+        progress_bar.progress(1 / total_queries)
+        
+        # Fetch Dune data
+        for i, query_key in enumerate(config.dune_queries.keys()):
+            status_text.text(f"Fetching {query_key.replace('_', ' ').title()}...")
+            data[query_key] = self.fetch_dune_data(query_key)
+            progress_bar.progress((i + 2) / total_queries)
+        
+        progress_bar.empty()
+        status_text.empty()
+        
+        return data
+
+# Analytics Engine
+class AnalyticsEngine:
+    def __init__(self):
+        pass
+    
+    def calculate_network_health_score(self, daily_activity: pd.DataFrame) -> dict:
+        if daily_activity.empty:
+            return {'score': 0, 'status': 'No Data', 'metrics': {}}
+        
+        recent_data = daily_activity.tail(7)
+        scores = []
+        metrics = {}
+        
+        # Gas price health (0-100)
+        if 'avg_gas_price_in_gwei' in recent_data.columns:
+            avg_gas = recent_data['avg_gas_price_in_gwei'].mean()
+            if avg_gas <= 15:
+                gas_score = 100
+            elif avg_gas <= 25:
+                gas_score = 70
+            elif avg_gas <= 40:
+                gas_score = 40
+            else:
+                gas_score = 20
+            
+            scores.append(gas_score)
+            metrics['avg_gas_price'] = avg_gas
+        
+        # Transaction volume health (0-100)
+        if 'daily_transactions' in recent_data.columns:
             avg_tx = recent_data['daily_transactions'].mean()
-            if avg_tx < 500000:
-                score -= 15
-            elif avg_tx < 800000:
-                score -= 5
+            if avg_tx >= 100000:
+                tx_score = 100
+            elif avg_tx >= 50000:
+                tx_score = 80
+            elif avg_tx >= 10000:
+                tx_score = 60
+            else:
+                tx_score = 30
             
-            # Network activity trend (25 points)
-            tx_trend = (recent_data['daily_transactions'].iloc[-1] - recent_data['daily_transactions'].iloc[0]) / recent_data['daily_transactions'].iloc[0]
-            if tx_trend < -0.2:
-                score -= 25
-            elif tx_trend < -0.1:
-                score -= 10
-            
-            # Gas price stability (20 points)
-            gas_volatility = recent_data['avg_gas_price_gwei'].std() / recent_data['avg_gas_price_gwei'].mean()
-            if gas_volatility > 0.5:
-                score -= 20
-            elif gas_volatility > 0.3:
-                score -= 10
+            scores.append(tx_score)
+            metrics['avg_daily_transactions'] = avg_tx
         
-        # Token performance (25 points)
-        if token_data and token_data.get('price_change_7d_pct'):
-            price_change = token_data['price_change_7d_pct']
-            if price_change < -20:
-                score -= 25
-            elif price_change < -10:
-                score -= 15
-            elif price_change < -5:
-                score -= 5
+        # Active wallet growth (0-100)
+        if 'active_wallets' in recent_data.columns and len(recent_data) >= 3:
+            recent_wallets = recent_data['active_wallets'].tail(3).mean()
+            older_wallets = recent_data['active_wallets'].head(3).mean()
+            
+            if older_wallets > 0:
+                growth_rate = ((recent_wallets - older_wallets) / older_wallets) * 100
+                
+                if growth_rate >= 15:
+                    wallet_score = 100
+                elif growth_rate >= 5:
+                    wallet_score = 80
+                elif growth_rate >= -10:
+                    wallet_score = 60
+                else:
+                    wallet_score = 40
+                
+                scores.append(wallet_score)
+                metrics['wallet_growth_rate'] = growth_rate
         
-        return max(0, min(100, score))
-    
-    network_health_score = calculate_network_health_score(ronin_daily, coingecko_data)
-    
-    # Key Metrics Row
-    col1, col2, col3, col4, col5 = st.columns(5)
-    
-    with col1:
-        health_status = "Excellent" if network_health_score >= 85 else "Good" if network_health_score >= 70 else "Warning" if network_health_score >= 50 else "Critical"
-        st.metric("🏥 Network Health", f"{network_health_score}/100", delta=health_status)
-    
-    with col2:
-        if ronin_daily is not None and not ronin_daily.empty:
-            latest_tx = ronin_daily['daily_transactions'].iloc[-1] if len(ronin_daily) > 0 else 1000000
-            st.metric("📊 Daily Transactions", f"{latest_tx:,.0f}", delta="24h volume")
+        overall_score = sum(scores) / len(scores) if scores else 0
+        
+        if overall_score >= 80:
+            status = 'Healthy'
+        elif overall_score >= 60:
+            status = 'Moderate'
+        elif overall_score >= 40:
+            status = 'Concerning'
         else:
-            st.metric("📊 Daily Transactions", "1,000,000", delta="24h volume")
+            status = 'Critical'
+        
+        return {
+            'score': round(overall_score, 1),
+            'status': status,
+            'metrics': metrics
+        }
     
-    with col3:
-        if coingecko_data:
-            st.metric("💎 RON Price", f"${coingecko_data['price_usd']:.3f}", 
-                     delta=f"{coingecko_data['price_change_24h_pct']:.1f}%")
+    def rank_games_by_performance(self, games_data: pd.DataFrame) -> pd.DataFrame:
+        if games_data.empty:
+            return pd.DataFrame()
+        
+        df = games_data.copy()
+        
+        # Normalize metrics for scoring
+        metrics = ['unique_players', 'transaction_count', 'total_volume_ron_sent_to_game']
+        
+        for metric in metrics:
+            if metric in df.columns:
+                max_val = df[metric].max()
+                if max_val > 0:
+                    df[f'{metric}_score'] = (df[metric] / max_val * 100).round(1)
+                else:
+                    df[f'{metric}_score'] = 0
+        
+        # Calculate composite score
+        score_cols = [col for col in df.columns if col.endswith('_score')]
+        if score_cols:
+            df['performance_score'] = df[score_cols].mean(axis=1).round(1)
         else:
-            st.metric("💎 RON Price", "$2.150", delta="-2.5%")
+            df['performance_score'] = 0
+        
+        # Add efficiency metrics
+        if all(col in df.columns for col in ['total_volume_ron_sent_to_game', 'unique_players']):
+            df['revenue_per_player'] = (df['total_volume_ron_sent_to_game'] / 
+                                       df['unique_players'].replace(0, 1)).round(2)
+        
+        if all(col in df.columns for col in ['transaction_count', 'unique_players']):
+            df['transactions_per_player'] = (df['transaction_count'] / 
+                                            df['unique_players'].replace(0, 1)).round(2)
+        
+        return df.sort_values('performance_score', ascending=False)
     
-    with col4:
-        if ronin_daily is not None and not ronin_daily.empty:
-            latest_users = ronin_daily['active_addresses'].iloc[-1] if len(ronin_daily) > 0 else 200000
-            st.metric("👥 Active Addresses", f"{latest_users:,.0f}", delta="24h unique")
+    def detect_whale_activity(self, whale_data: pd.DataFrame) -> list:
+        alerts = []
+        
+        if whale_data.empty:
+            return alerts
+        
+        if 'trade_volume_usd' in whale_data.columns:
+            large_trades = whale_data[whale_data['trade_volume_usd'] >= config.whale_threshold]
+            
+            for _, trade in large_trades.iterrows():
+                alerts.append({
+                    'type': 'whale_activity',
+                    'severity': 'high',
+                    'message': f"Large trade detected: ${trade['trade_volume_usd']:,.0f}",
+                    'timestamp': datetime.now().isoformat()
+                })
+        
+        return alerts
+    
+    def calculate_ecosystem_dominance(self, data: dict) -> dict:
+        dominance = {
+            'gaming_dominance': 0.0,
+            'defi_dominance': 0.0,
+            'nft_dominance': 0.0
+        }
+        
+        total_volume = 0
+        
+        # Gaming volume
+        if 'games_overall_activity' in data and not data['games_overall_activity'].empty:
+            gaming_volume = data['games_overall_activity']['total_volume_ron_sent_to_game'].sum()
+            total_volume += gaming_volume
         else:
-            st.metric("👥 Active Addresses", "200,000", delta="24h unique")
-    
-    with col5:
-        if coingecko_data:
-            market_cap_b = coingecko_data['market_cap_usd'] / 1e9
-            st.metric("🏦 Market Cap", f"${market_cap_b:.2f}B", 
-                     delta=f"Rank #{coingecko_data['market_cap_rank']}")
+            gaming_volume = 0
+        
+        # DeFi volume
+        if 'wron_volume_liquidity' in data and not data['wron_volume_liquidity'].empty:
+            volume_col = 'WRON Volume (USD)' if 'WRON Volume (USD)' in data['wron_volume_liquidity'].columns else 'volume_usd'
+            if volume_col in data['wron_volume_liquidity'].columns:
+                defi_volume = data['wron_volume_liquidity'][volume_col].sum()
+                total_volume += defi_volume
+            else:
+                defi_volume = 0
         else:
-            st.metric("🏦 Market Cap", "$0.70B", delta="Rank #85")
-    
-    st.markdown("---")
-    
-    # Network Activity Visualization
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if ronin_daily is not None and not ronin_daily.empty:
-            # Convert date column if it's string
-            if 'date' in ronin_daily.columns:
-                ronin_daily['date'] = pd.to_datetime(ronin_daily['date'])
-            
-            fig_network = make_subplots(
-                rows=2, cols=1,
-                subplot_titles=("Daily Transaction Volume", "Active Addresses & Gas Prices"),
-                vertical_spacing=0.1
-            )
-            
-            # Transactions
-            fig_network.add_trace(
-                go.Scatter(
-                    x=ronin_daily['date'],
-                    y=ronin_daily['daily_transactions'],
-                    mode='lines+markers',
-                    name='Daily Transactions',
-                    line=dict(color='#FF6B35', width=3),
-                    fill='tonexty'
-                ),
-                row=1, col=1
-            )
-            
-            # Active addresses
-            fig_network.add_trace(
-                go.Scatter(
-                    x=ronin_daily['date'],
-                    y=ronin_daily['active_addresses'],
-                    mode='lines+markers',
-                    name='Active Addresses',
-                    line=dict(color='#00D4FF', width=3),
-                    yaxis='y3'
-                ),
-                row=2, col=1
-            )
-            
-            fig_network.update_layout(
-                height=600,
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                font_color='white',
-                title="🌐 Network Activity Trends (30 Days)"
-            )
-            
-            st.plotly_chart(fig_network, use_container_width=True)
+            defi_volume = 0
+        
+        # NFT volume
+        if 'nft_collections' in data and not data['nft_collections'].empty:
+            nft_volume_col = 'sales_volume_usd' if 'sales_volume_usd' in data['nft_collections'].columns else 'sales volume (USD)'
+            if nft_volume_col in data['nft_collections'].columns:
+                nft_volume = data['nft_collections'][nft_volume_col].sum()
+                total_volume += nft_volume
+            else:
+                nft_volume = 0
         else:
-            st.info("Network activity data temporarily unavailable")
+            nft_volume = 0
+        
+        # Calculate percentages
+        if total_volume > 0:
+            dominance['gaming_dominance'] = (gaming_volume / total_volume) * 100
+            dominance['defi_dominance'] = (defi_volume / total_volume) * 100
+            dominance['nft_dominance'] = (nft_volume / total_volume) * 100
+        
+        return dominance
+
+# Visualization Components
+class Visualizer:
+    def __init__(self):
+        self.colors = {
+            'primary': '#1f77b4',
+            'secondary': '#17becf',
+            'accent': '#084594',
+            'success': '#2ca02c',
+            'warning': '#ff7f0e',
+            'danger': '#d62728'
+        }
+        
+        self.color_sequences = {
+            'blues': ['#6baed6', '#4292c6', '#2171b5', '#08519c', '#08306b'],
+            'gradient': px.colors.sequential.Blues
+        }
     
-    with col2:
-        # Network Health Gauge
-        fig_gauge = go.Figure(go.Indicator(
+    def create_network_health_gauge(self, health_score: float, status: str) -> go.Figure:
+        fig = go.Figure(go.Indicator(
             mode="gauge+number+delta",
-            value=network_health_score,
+            value=health_score,
             domain={'x': [0, 1], 'y': [0, 1]},
-            title={'text': "🏥 Network Health Score"},
-            delta={'reference': 85, 'position': "top"},
+            title={'text': "Network Health Score"},
+            delta={'reference': 80},
             gauge={
                 'axis': {'range': [None, 100]},
-                'bar': {'color': "#FF6B35"},
+                'bar': {'color': self.colors['primary']},
                 'steps': [
-                    {'range': [0, 50], 'color': "lightgray"},
-                    {'range': [50, 85], 'color': "gray"}
+                    {'range': [0, 40], 'color': "#ffcccc"},
+                    {'range': [40, 60], 'color': "#ffffcc"},
+                    {'range': [60, 80], 'color': "#ccffcc"},
+                    {'range': [80, 100], 'color': "#ccffff"}
                 ],
                 'threshold': {
-                    'line': {'color': "red", 'width': 4},
+                    'line': {'color': self.colors['danger'], 'width': 4},
                     'thickness': 0.75,
                     'value': 90
                 }
             }
         ))
         
-        fig_gauge.update_layout(
+        fig.update_layout(
             height=400,
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            font_color='white'
+            annotations=[
+                dict(
+                    x=0.5, y=0.15,
+                    text=f"Status: {status}",
+                    showarrow=False,
+                    font={'size': 16, 'color': self.colors['primary']}
+                )
+            ]
         )
         
-        st.plotly_chart(fig_gauge, use_container_width=True)
-        
-        # Token holder distribution
-        if ron_holders is not None and not ron_holders.empty:
-            fig_holders = px.pie(
-                ron_holders,
-                values='holders',
-                names='balance_range',
-                title="💰 RON Holder Distribution",
-                color_discrete_sequence=['#FF6B35', '#F7931E', '#00D4FF', '#4ECDC4', '#45B7D1', '#FFB347']
-            )
-            
-            fig_holders.update_layout(
-                height=350,
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                font_color='white'
-            )
-            
-            st.plotly_chart(fig_holders, use_container_width=True)
-
-# === GAMING ECONOMY SECTION ===
-elif section == "Gaming Economy":
-    st.markdown("## 🎮 Gaming Economy & Player Analytics")
+        return fig
     
-    if games_overall is not None and not games_overall.empty:
-        # Gaming metrics
-        total_gaming_users = games_overall['unique_users'].sum()
-        total_gaming_tx = games_overall['total_transactions'].sum()
-        top_game = games_overall.iloc[0]['project_name'] if len(games_overall) > 0 else "Axie Infinity"
+    def create_games_performance_chart(self, games_data: pd.DataFrame) -> go.Figure:
+        if games_data.empty:
+            return self.create_empty_chart("No games data available")
         
-        col1, col2, col3, col4 = st.columns(4)
+        df_sorted = games_data.sort_values('performance_score', ascending=True).tail(15)
+        
+        fig = px.bar(
+            df_sorted,
+            x='performance_score',
+            y='game_project',
+            orientation='h',
+            title='Top Game Projects by Performance Score',
+            labels={'performance_score': 'Performance Score', 'game_project': 'Game Project'},
+            color='performance_score',
+            color_continuous_scale=self.color_sequences['gradient'],
+            text='performance_score'
+        )
+        
+        fig.update_traces(
+            texttemplate='%{text:.1f}',
+            textposition='outside'
+        )
+        
+        fig.update_layout(
+            yaxis={'categoryorder': 'total ascending'},
+            height=600
+        )
+        
+        return fig
+    
+    def create_daily_activity_timeline(self, daily_data: pd.DataFrame) -> go.Figure:
+        if daily_data.empty:
+            return self.create_empty_chart("No daily activity data available")
+        
+        if 'day' in daily_data.columns:
+            daily_data = daily_data.copy()
+            daily_data['day'] = pd.to_datetime(daily_data['day'])
+        
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        
+        if 'active_wallets' in daily_data.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=daily_data['day'],
+                    y=daily_data['active_wallets'],
+                    name='Active Wallets',
+                    line=dict(color=self.colors['primary'], width=3)
+                ),
+                secondary_y=False
+            )
+        
+        if 'avg_gas_price_in_gwei' in daily_data.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=daily_data['day'],
+                    y=daily_data['avg_gas_price_in_gwei'],
+                    name='Avg Gas Price (GWEI)',
+                    line=dict(color=self.colors['warning'], width=2)
+                ),
+                secondary_y=True
+            )
+        
+        fig.update_layout(
+            title='Daily Network Activity Trends',
+            hovermode='x unified'
+        )
+        
+        fig.update_yaxes(title_text="Active Wallets", secondary_y=False)
+        fig.update_yaxes(title_text="Gas Price (GWEI)", secondary_y=True)
+        
+        return fig
+    
+    def create_user_segment_pie(self, segmentation_data: pd.DataFrame) -> go.Figure:
+        if segmentation_data.empty:
+            return self.create_empty_chart("No segmentation data available")
+        
+        values_col = 'holders' if 'holders' in segmentation_data.columns else segmentation_data.columns[1]
+        names_col = 'tier' if 'tier' in segmentation_data.columns else segmentation_data.columns[0]
+        
+        fig = px.pie(
+            segmentation_data,
+            values=values_col,
+            names=names_col,
+            title='User Segmentation Distribution',
+            hole=0.4,
+            color_discrete_sequence=self.color_sequences['blues']
+        )
+        
+        fig.update_traces(
+            textinfo='value+percent',
+            textposition='outside',
+            hovertemplate='<b>%{label}</b><br>Count: %{value:,}<br>Percentage: %{percent}<extra></extra>'
+        )
+        
+        return fig
+    
+    def create_nft_marketplace_overview(self, nft_data: pd.DataFrame) -> go.Figure:
+        if nft_data.empty:
+            return self.create_empty_chart("No NFT data available")
+        
+        # Get volume column name
+        volume_col = 'sales_volume_usd' if 'sales_volume_usd' in nft_data.columns else 'sales volume (USD)'
+        floor_col = 'floor_price_usd' if 'floor_price_usd' in nft_data.columns else 'floor price (USD)'
+        
+        if volume_col not in nft_data.columns:
+            return self.create_empty_chart("No volume data available for NFT collections")
+        
+        top_collections = nft_data.nlargest(20, volume_col)
+        
+        fig = px.scatter(
+            top_collections,
+            x='holders' if 'holders' in top_collections.columns else top_collections.index,
+            y=floor_col if floor_col in top_collections.columns else volume_col,
+            size=volume_col,
+            color='total_revenue_usd' if 'total_revenue_usd' in top_collections.columns else volume_col,
+            hover_name='contract_address' if 'contract_address' in top_collections.columns else top_collections.index,
+            title='NFT Collections: Holders vs Floor Price',
+            log_x=True,
+            log_y=True,
+            size_max=40,
+            color_continuous_scale=self.color_sequences['gradient']
+        )
+        
+        return fig
+    
+    def create_ecosystem_dominance_chart(self, dominance_data: dict) -> go.Figure:
+        if not dominance_data:
+            return self.create_empty_chart("No dominance data available")
+        
+        sectors = list(dominance_data.keys())
+        values = list(dominance_data.values())
+        
+        fig = px.pie(
+            values=values,
+            names=[sector.replace('_', ' ').title() for sector in sectors],
+            title='Ronin Ecosystem Volume Dominance',
+            hole=0.3,
+            color_discrete_sequence=self.color_sequences['blues']
+        )
+        
+        fig.update_traces(
+            textinfo='label+percent',
+            textposition='outside'
+        )
+        
+        return fig
+    
+    def create_empty_chart(self, message: str) -> go.Figure:
+        fig = go.Figure()
+        fig.add_annotation(
+            x=0.5, y=0.5,
+            text=message,
+            showarrow=False,
+            font={'size': 16, 'color': 'gray'},
+            xref='paper',
+            yref='paper'
+        )
+        fig.update_layout(
+            xaxis={'visible': False},
+            yaxis={'visible': False},
+            height=400
+        )
+        return fig
+
+# Utility functions
+def format_currency(value: float, currency: str = "USD") -> str:
+    if pd.isna(value) or value is None:
+        return "N/A"
+    
+    if abs(value) >= 1e9:
+        return f"${value/1e9:,.1f}B"
+    elif abs(value) >= 1e6:
+        return f"${value/1e6:,.1f}M"
+    elif abs(value) >= 1e3:
+        return f"${value/1e3:,.1f}K"
+    else:
+        return f"${value:,.2f}"
+
+def format_number(value: Union[int, float]) -> str:
+    if pd.isna(value) or value is None:
+        return "N/A"
+    
+    if abs(value) >= 1e9:
+        return f"{value/1e9:,.1f}B"
+    elif abs(value) >= 1e6:
+        return f"{value/1e6:,.1f}M"
+    elif abs(value) >= 1e3:
+        return f"{value/1e3:,.1f}K"
+    else:
+        return f"{value:,.0f}"
+
+# Main Dashboard Class
+class RoninDashboard:
+    def __init__(self):
+        self.data_manager = DataManager()
+        self.analytics_engine = AnalyticsEngine()
+        self.visualizer = Visualizer()
+        
+        # Initialize session state
+        if 'data_loaded' not in st.session_state:
+            st.session_state.data_loaded = False
+        if 'cached_data' not in st.session_state:
+            st.session_state.cached_data = {}
+    
+    def render_header(self):
+        st.markdown("""
+        <div class="main-header">
+            <h1>🎮 Ronin Ecosystem Tracker</h1>
+            <p style="color: white; margin: 0; opacity: 0.9;">
+                Real-time Analytics Dashboard for Ronin Blockchain Gaming Economy
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    def render_sidebar(self):
+        with st.sidebar:
+            st.markdown("## 🎯 Dashboard Controls")
+            
+            # Data refresh
+            if st.button("🔄 Refresh Data", type="primary"):
+                st.session_state.data_loaded = False
+                st.session_state.cached_data = {}
+                st.rerun()
+            
+            # Auto-refresh
+            auto_refresh = st.checkbox("Auto-refresh (5min)", value=False)
+            
+            # Filters
+            st.markdown("### 📊 Filters")
+            
+            time_range = st.selectbox(
+                "Time Range",
+                ["Last 7 days", "Last 30 days", "Last 90 days", "All time"],
+                index=1
+            )
+            
+            # About section
+            st.markdown("---")
+            st.markdown("### ℹ️ About")
+            st.markdown("""
+            **Ronin Ecosystem Tracker** provides comprehensive analytics for the Ronin blockchain:
+            
+            🎮 **Gaming Analytics**
+            - Player activity and retention
+            - Game performance rankings
+            - Revenue analysis
+            
+            📊 **DeFi Intelligence**
+            - Trading volume and liquidity
+            - Whale activity monitoring
+            - Cross-bridge flows
+            
+            🖼️ **NFT Marketplace**
+            - Collection performance
+            - Trading volumes
+            - Floor price trends
+            
+            🔍 **Network Health**
+            - Transaction throughput
+            - Gas price monitoring
+            - Congestion analysis
+            """)
+            
+            st.markdown("---")
+            st.markdown("*Data: Dune Analytics & CoinGecko*")
+    
+    def load_data(self):
+        if not st.session_state.data_loaded:
+            with st.spinner("Loading Ronin ecosystem data..."):
+                try:
+                    data = self.data_manager.load_all_data()
+                    st.session_state.cached_data = data
+                    st.session_state.data_loaded = True
+                    st.success("Data loaded successfully!")
+                    return True
+                except Exception as e:
+                    st.error(f"Failed to load data: {e}")
+                    return False
+        return True
+    
+    def render_overview_tab(self):
+        st.header("📊 Network Overview")
+        
+        data = st.session_state.cached_data
+        
+        # Key metrics
+        if data.get('ron_market'):
+            ron_metrics = data['ron_market']
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                price = ron_metrics.get('current_price_usd', 0)
+                change = ron_metrics.get('price_change_24h', 0)
+                st.metric(
+                    "RON Price",
+                    f"${price:.4f}" if price else "N/A",
+                    f"{change:.2f}%" if change else None
+                )
+            
+            with col2:
+                mcap = ron_metrics.get('market_cap_usd', 0)
+                st.metric(
+                    "Market Cap",
+                    format_currency(mcap) if mcap else "N/A"
+                )
+            
+            with col3:
+                volume = ron_metrics.get('volume_24h_usd', 0)
+                st.metric(
+                    "24h Volume",
+                    format_currency(volume) if volume else "N/A"
+                )
+            
+            with col4:
+                supply = ron_metrics.get('circulating_supply', 0)
+                st.metric(
+                    "Circulating Supply",
+                    format_number(supply) if supply else "N/A"
+                )
+        
+        # Network health and daily activity
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if data.get('ronin_daily_activity') is not None:
+                health_data = self.analytics_engine.calculate_network_health_score(data['ronin_daily_activity'])
+                fig = self.visualizer.create_network_health_gauge(
+                    health_data.get('score', 0),
+                    health_data.get('status', 'Unknown')
+                )
+                st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            if data.get('ronin_daily_activity') is not None:
+                daily_fig = self.visualizer.create_daily_activity_timeline(data['ronin_daily_activity'])
+                st.plotly_chart(daily_fig, use_container_width=True)
+        
+        # Ecosystem dominance
+        dominance = self.analytics_engine.calculate_ecosystem_dominance(data)
+        if dominance and any(v > 0 for v in dominance.values()):
+            dominance_fig = self.visualizer.create_ecosystem_dominance_chart(dominance)
+            st.plotly_chart(dominance_fig, use_container_width=True)
+        
+        # User segmentation
+        if data.get('ron_segmented_holders') is not None and not data['ron_segmented_holders'].empty:
+            segment_fig = self.visualizer.create_user_segment_pie(data['ron_segmented_holders'])
+            st.plotly_chart(segment_fig, use_container_width=True)
+    
+    def render_gaming_tab(self):
+        st.header("🎮 Gaming Analytics")
+        
+        data = st.session_state.cached_data
+        
+        if data.get('games_overall_activity') is not None and not data['games_overall_activity'].empty:
+            games_data = data['games_overall_activity']
+            
+            # Rank games by performance
+            ranked_games = self.analytics_engine.rank_games_by_performance(games_data)
+            
+            if not ranked_games.empty:
+                # Performance chart
+                perf_fig = self.visualizer.create_games_performance_chart(ranked_games)
+                st.plotly_chart(perf_fig, use_container_width=True)
+                
+                # Top games table
+                st.subheader("🏆 Top Performing Games")
+                
+                display_cols = ['game_project', 'unique_players', 'transaction_count', 
+                               'total_volume_ron_sent_to_game', 'performance_score']
+                
+                available_cols = [col for col in display_cols if col in ranked_games.columns]
+                
+                if available_cols:
+                    top_games = ranked_games[available_cols].head(10)
+                    
+                    # Format the dataframe for display
+                    if 'total_volume_ron_sent_to_game' in top_games.columns:
+                        top_games['total_volume_ron_sent_to_game'] = top_games['total_volume_ron_sent_to_game'].round(2)
+                    
+                    st.dataframe(
+                        top_games,
+                        use_container_width=True
+                    )
+                
+                # Gaming metrics
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    total_games = len(games_data)
+                    st.metric("Total Games", total_games)
+                
+                with col2:
+                    total_players = games_data['unique_players'].sum()
+                    st.metric("Total Players", format_number(total_players))
+                
+                with col3:
+                    total_volume = games_data['total_volume_ron_sent_to_game'].sum()
+                    st.metric("Total Volume (RON)", format_number(total_volume))
+        else:
+            st.info("Gaming data is loading...")
+    
+    def render_defi_tab(self):
+        st.header("💰 DeFi Analytics")
+        
+        data = st.session_state.cached_data
+        
+        # Trading volume analysis
+        if data.get('wron_volume_liquidity') is not None and not data['wron_volume_liquidity'].empty:
+            trading_data = data['wron_volume_liquidity']
+            st.subheader("📈 Trading Volume Analysis")
+            
+            # Try to create volume over time chart
+            date_col = None
+            volume_col = None
+            
+            for col in trading_data.columns:
+                if 'day' in col.lower() or 'date' in col.lower():
+                    date_col = col
+                if 'volume' in col.lower() and 'usd' in col.lower():
+                    volume_col = col
+            
+            if date_col and volume_col:
+                daily_volume = trading_data.groupby(date_col)[volume_col].sum().reset_index()
+                
+                fig = px.line(
+                    daily_volume,
+                    x=date_col,
+                    y=volume_col,
+                    title='Daily WRON Trading Volume'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # Show trading data table
+            st.dataframe(trading_data.head(20), use_container_width=True)
+        
+        # Whale activity
+        if data.get('wron_whale_tracking') is not None and not data['wron_whale_tracking'].empty:
+            whale_data = data['wron_whale_tracking']
+            
+            st.subheader("🐋 Whale Activity")
+            
+            # Generate whale alerts
+            whale_alerts = self.analytics_engine.detect_whale_activity(whale_data)
+            
+            if whale_alerts:
+                st.warning(f"⚠️ {len(whale_alerts)} whale transactions detected above ${config.whale_threshold:,}")
+                
+                for alert in whale_alerts[:5]:  # Show latest 5
+                    st.markdown(f"• {alert['message']}")
+            else:
+                st.info("No significant whale activity detected")
+            
+            # Whale data table
+            if 'trade_volume_usd' in whale_data.columns:
+                whale_summary = whale_data.groupby(whale_data.index).agg({
+                    'trade_volume_usd': ['sum', 'count', 'mean']
+                }).round(2)
+                st.dataframe(whale_summary, use_container_width=True)
+        
+        # Active trading pairs
+        if data.get('wron_active_trade_pairs') is not None and not data['wron_active_trade_pairs'].empty:
+            pairs_data = data['wron_active_trade_pairs']
+            
+            st.subheader("📊 Active Trading Pairs")
+            
+            # Find volume column
+            volume_cols = [col for col in pairs_data.columns if 'volume' in col.lower() and 'usd' in col.lower()]
+            
+            if volume_cols:
+                volume_col = volume_cols[0]
+                top_pairs = pairs_data.nlargest(20, volume_col)
+                st.dataframe(top_pairs, use_container_width=True)
+            else:
+                st.dataframe(pairs_data.head(20), use_container_width=True)
+    
+    def render_nft_tab(self):
+        st.header("🖼️ NFT Marketplace")
+        
+        data = st.session_state.cached_data
+        
+        if data.get('nft_collections') is not None and not data['nft_collections'].empty:
+            nft_data = data['nft_collections']
+            
+            # NFT overview chart
+            nft_fig = self.visualizer.create_nft_marketplace_overview(nft_data)
+            st.plotly_chart(nft_fig, use_container_width=True)
+            
+            # NFT marketplace metrics
+            col1, col2, col3 = st.columns(3)
+            
+            volume_col = 'sales_volume_usd' if 'sales_volume_usd' in nft_data.columns else 'sales volume (USD)'
+            
+            with col1:
+                total_collections = len(nft_data)
+                st.metric("Total Collections", total_collections)
+            
+            with col2:
+                if volume_col in nft_data.columns:
+                    total_volume = nft_data[volume_col].sum()
+                    st.metric("Total Volume", format_currency(total_volume))
+                else:
+                    st.metric("Total Volume", "N/A")
+            
+            with col3:
+                if 'holders' in nft_data.columns:
+                    total_holders = nft_data['holders'].sum()
+                    st.metric("Total Holders", format_number(total_holders))
+                else:
+                    st.metric("Total Holders", "N/A")
+            
+            # Top collections table
+            st.subheader("🏆 Top NFT Collections")
+            
+            if volume_col in nft_data.columns:
+                top_collections = nft_data.nlargest(10, volume_col)
+                
+                # Select available columns for display
+                display_cols = []
+                
+                if 'contract_address' in top_collections.columns:
+                    display_cols.append('contract_address')
+                if 'holders' in top_collections.columns:
+                    display_cols.append('holders')
+                if volume_col in top_collections.columns:
+                    display_cols.append(volume_col)
+                
+                floor_col = 'floor_price_usd' if 'floor_price_usd' in top_collections.columns else 'floor price (USD)'
+                if floor_col in top_collections.columns:
+                    display_cols.append(floor_col)
+                
+                if display_cols:
+                    display_data = top_collections[display_cols].copy()
+                    
+                    # Format numeric columns
+                    for col in display_data.columns:
+                        if display_data[col].dtype in ['float64', 'int64']:
+                            display_data[col] = display_data[col].round(2)
+                    
+                    st.dataframe(display_data, use_container_width=True)
+                else:
+                    st.dataframe(top_collections.head(10), use_container_width=True)
+            else:
+                st.dataframe(nft_data.head(10), use_container_width=True)
+        else:
+            st.info("NFT marketplace data is loading...")
+    
+    def render_alerts_tab(self):
+        st.header("🚨 Alerts & Monitoring")
+        
+        data = st.session_state.cached_data
+        
+        # Network health details
+        if data.get('ronin_daily_activity') is not None:
+            health_data = self.analytics_engine.calculate_network_health_score(data['ronin_daily_activity'])
+            
+            st.subheader("🔍 Network Health Status")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                score = health_data.get('score', 0)
+                status = health_data.get('status', 'Unknown')
+                
+                if score >= 80:
+                    st.success(f"Network Health: {status} ({score}/100)")
+                elif score >= 60:
+                    st.warning(f"Network Health: {status} ({score}/100)")
+                else:
+                    st.error(f"Network Health: {status} ({score}/100)")
+            
+            with col2:
+                metrics = health_data.get('metrics', {})
+                for metric, value in metrics.items():
+                    formatted_value = f"{value:.2f}" if isinstance(value, float) else str(value)
+                    st.metric(
+                        metric.replace('_', ' ').title(),
+                        formatted_value
+                    )
+        
+        # Whale activity alerts
+        whale_alerts = []
+        if data.get('wron_whale_tracking') is not None:
+            whale_alerts = self.analytics_engine.detect_whale_activity(data['wron_whale_tracking'])
+        
+        if whale_alerts:
+            st.subheader("🐋 Whale Activity Alerts")
+            for alert in whale_alerts[:10]:
+                severity = alert.get('severity', 'medium')
+                message = alert.get('message', 'No message')
+                
+                if severity == 'high':
+                    st.error(f"🚨 {message}")
+                else:
+                    st.warning(f"⚠️ {message}")
+        
+        # System status
+        st.subheader("📊 System Status")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            data_freshness = "Fresh" if st.session_state.data_loaded else "Stale"
+            st.metric("Data Status", data_freshness)
+        
+        with col2:
+            total_datasets = len([k for k, v in data.items() if isinstance(v, pd.DataFrame) and not v.empty])
+            st.metric("Active Datasets", total_datasets)
+        
+        with col3:
+            st.metric("API Status", "Connected" if config.dune_api_key and config.coingecko_api_key else "Limited")
+    
+    def run(self):
+        # Check configuration
+        if not config.dune_api_key or not config.coingecko_api_key:
+            st.error("""
+            🔑 **API Keys Required**
+            
+            Please set your API keys as environment variables:
+            - `DEFI_JOSH_DUNE_QUERY_API_KEY`
+            - `COINGECKO_PRO_API_KEY`
+            
+            You can get these from:
+            - [Dune Analytics](https://dune.com/settings/api)
+            - [CoinGecko Pro](https://www.coingecko.com/en/api/pricing)
+            """)
+            return
+        
+        # Render header
+        self.render_header()
+        
+        # Render sidebar
+        self.render_sidebar()
+        
+        # Load data
+        if not self.load_data():
+            st.error("Failed to load data. Please check your API keys and try refreshing.")
+            return
+        
+        # Main dashboard tabs
+        tabs = st.tabs(["📊 Overview", "🎮 Gaming", "💰 DeFi", "🖼️ NFT", "🚨 Alerts"])
+        
+        with tabs[0]:
+            self.render_overview_tab()
+        
+        with tabs[1]:
+            self.render_gaming_tab()
+        
+        with tabs[2]:
+            self.render_defi_tab()
+        
+        with tabs[3]:
+            self.render_nft_tab()
+        
+        with tabs[4]:
+            self.render_alerts_tab()
+        
+        # Footer
+        st.markdown("---")
+        st.markdown("""
+        <div style="text-align: center; color: #888; padding: 20px;">
+            🎮 <strong>Ronin Ecosystem Tracker</strong> | 
+            Powered by <a href="https://dune.com" target="_blank">Dune Analytics</a> & 
+            <a href="https://coingecko.com" target="_blank">CoinGecko</a><br>
+            <small>Real-time blockchain gaming economy analytics</small>
+        </div>
+        """, unsafe_allow_html=True)
+
+# Main function
+def main():
+    dashboard = RoninDashboard()
+    dashboard.run()
+
+if __name__ == "__main__":
+    main()

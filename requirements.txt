@@ -1,7 +1,7 @@
 streamlit
 pandas
 plotly
-nbformat>=4.2.0
+nbformat
 matplotlib
 numpy
 requests
