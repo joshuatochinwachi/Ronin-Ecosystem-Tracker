@@ -258,6 +258,7 @@ class DataManager:
             data = response.json()
             
             market_data = data.get("market_data", {})
+            st.session_state.last_data_refresh = datetime.now()
             return {
                 'name': data.get('name'),
                 'symbol': data.get('symbol'),
@@ -297,7 +298,7 @@ class DataManager:
             
             # Cache the result
             _self.cache_data(query_key, df)
-            
+            st.session_state.last_data_refresh = datetime.now()
             return df
         except Exception as e:
             logger.error(f"Failed to fetch {query_key}: {e}")
