@@ -22,7 +22,8 @@ A comprehensive real-time analytics dashboard for the Ronin blockchain gaming ec
 ## Interactive web app / Dashboard
 
 **[View Dashboard](https://ronin-ecosystem-tracker.streamlit.app)**
-**For more, [check interactive python notebooks for more visualizations](https://github.com/joshuatochinwachi/Ronin-Ecosystem-Tracker/tree/main/Notebooks)**
+
+For more, [check interactive python notebooks for more visualizations](https://github.com/joshuatochinwachi/Ronin-Ecosystem-Tracker/tree/main/Notebooks)
 
 ## Architecture
 
