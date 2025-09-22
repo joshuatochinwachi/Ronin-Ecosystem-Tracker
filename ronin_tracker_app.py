@@ -1117,8 +1117,8 @@ class RoninDashboard:
                     data = self.data_manager.load_all_data(st.session_state.selected_time_filter)
                     st.session_state.cached_data = data
                     st.session_state.data_loaded = True
-                    if not st.session_state.last_data_refresh:
-                        st.session_state.last_data_refresh = datetime.now()
+                    # if not st.session_state.last_data_refresh:
+                    #     st.session_state.last_data_refresh = datetime.now()
                     st.success("✅ Data loaded successfully with 24-hour caching active!")
                     return True
                 except Exception as e:
