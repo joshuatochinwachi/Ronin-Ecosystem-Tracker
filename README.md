@@ -286,14 +286,13 @@ joblib>=1.3.0
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Support
+## 📧 Contact
 
-For support, questions, or feature requests:
-- Open an issue on GitHub
-- Check existing documentation
-- Review the live demo for expected behavior
+Created by **Jo$h** - DeFi Analytics Specialist
+
+For questions, suggestions, or collaboration opportunities, please send a DM on [Telegram](https://t.me/joshuatochinwachi) or [X](https://x.com/defi__josh).
 
 ## Acknowledgments
 
