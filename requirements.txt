@@ -3,6 +3,7 @@ pandas
 plotly
 nbformat
 matplotlib
+seaborn
 numpy
 requests
 joblib
