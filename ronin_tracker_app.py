@@ -703,7 +703,7 @@ class AnalyticsEngine:
                     'title': f"Network Health Score: {health_data['score']}/100",
                     'message': f"Network status is {health_data['status']}. Immediate attention required.",
                     'details': health_data['insights'][:3],
-                    'timestamp': datetime.now(),
+                    'timestamp': st.session_state.last_data_refresh or datetime.now(),
                     'action': 'Monitor gas prices and transaction volume closely'
                 })
         
@@ -721,7 +721,7 @@ class AnalyticsEngine:
                         'message': f"Total whale volume: ${total_whale_volume:,.0f}",
                         'details': [f"Largest trade: ${large_trades['trade_volume_usd'].max():,.0f}",
                                    f"Average whale trade: ${large_trades['trade_volume_usd'].mean():,.0f}"],
-                        'timestamp': datetime.now(),
+                        'timestamp': st.session_state.last_data_refresh or datetime.now(),
                         'action': 'Monitor for potential market impact'
                     })
         
@@ -738,7 +738,7 @@ class AnalyticsEngine:
                         'message': f"Total unique players: {total_players:,}",
                         'details': ['Gaming sector may need attention',
                                    'Consider marketing campaigns or incentives'],
-                        'timestamp': datetime.now(),
+                        'timestamp': st.session_state.last_data_refresh or datetime.now(),
                         'action': 'Review gaming partnerships and user acquisition'
                     })
         
