@@ -9,3 +9,7 @@ requests
 joblib
 python-dotenv
 dune-client
+fastapi
+uvicorn
+aiohttp
+pydantic
