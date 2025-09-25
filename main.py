@@ -5,6 +5,7 @@ Version: 2.0 - FastAPI conversion with async support
 """
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Query
+from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import pandas as pd
@@ -743,15 +744,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Root endpoint - ADD THIS HERE
+# Root endpoint 
 @app.get("/")
-async def root():
+async def root(request: Request):
+    base_url = str(request.base_url).rstrip('/')
+    
     return {
         "message": "Ronin Ecosystem Tracker API",
-        "version": "2.0.0",
+        "version": "2.0.0", 
         "status": "online",
-        "documentation": "http://127.0.0.1:8000/docs",
-        "health_check": "http://127.0.0.1:8000/health",
+        "documentation": f"{base_url}/docs",
+        "health_check": f"{base_url}/health",
         "endpoints": {
             "core_data": {
                 "health": "/health",
