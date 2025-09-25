@@ -458,25 +458,33 @@ class AnalyticsEngine:
         
         # Gaming spending
         if not games_data.empty and 'total_volume_ron_sent_to_game' in games_data.columns:
-            gaming_volume = games_data['total_volume_ron_sent_to_game'].sum()
-            gaming_users = games_data['unique_players'].sum() if 'unique_players' in games_data.columns else 0
-            spending_analysis['sectors']['Gaming'] = {
-                'volume_ron': gaming_volume,
-                'users': gaming_users,
-                'avg_spend_per_user': gaming_volume / gaming_users if gaming_users > 0 else 0
-            }
-            spending_analysis['total_volume'] += gaming_volume
+            try:
+                gaming_volume = games_data['total_volume_ron_sent_to_game'].sum()
+                gaming_users = games_data['unique_players'].sum() if 'unique_players' in games_data.columns else 0
+                avg_spend = gaming_volume / gaming_users if gaming_users > 0 else 0
+                spending_analysis['sectors']['Gaming'] = {
+                    'volume_ron': float(gaming_volume) if not pd.isna(gaming_volume) else 0.0,
+                    'users': int(gaming_users) if not pd.isna(gaming_users) else 0,
+                    'avg_spend_per_user': float(avg_spend) if not pd.isna(avg_spend) else 0.0
+                }
+                spending_analysis['total_volume'] += float(gaming_volume) if not pd.isna(gaming_volume) else 0.0
+            except Exception as e:
+                logger.error(f"Error processing gaming spending data: {e}")
         
         # NFT spending
         if not nft_data.empty and 'sales_volume_usd' in nft_data.columns:
-            nft_volume = nft_data['sales_volume_usd'].sum() / 2.5  # Approximate RON conversion
-            nft_users = nft_data['holders'].sum() if 'holders' in nft_data.columns else 0
-            spending_analysis['sectors']['NFT'] = {
-                'volume_ron': nft_volume,
-                'users': nft_users,
-                'avg_spend_per_user': nft_volume / nft_users if nft_users > 0 else 0
-            }
-            spending_analysis['total_volume'] += nft_volume
+            try:
+                nft_volume = nft_data['sales_volume_usd'].sum() / 2.5
+                nft_users = nft_data['holders'].sum() if 'holders' in nft_data.columns else 0
+                avg_spend = nft_volume / nft_users if nft_users > 0 else 0
+                spending_analysis['sectors']['NFT'] = {
+                    'volume_ron': float(nft_volume) if not pd.isna(nft_volume) else 0.0,
+                    'users': int(nft_users) if not pd.isna(nft_users) else 0,
+                    'avg_spend_per_user': float(avg_spend) if not pd.isna(avg_spend) else 0.0
+                }
+                spending_analysis['total_volume'] += float(nft_volume) if not pd.isna(nft_volume) else 0.0
+            except Exception as e:
+                logger.error(f"Error processing NFT spending data: {e}")
         
         # DeFi spending
         if not defi_data.empty:
@@ -833,10 +841,15 @@ async def get_gaming_overview(time_filter: str = Query("Last 30 days")):
             return {"message": "No gaming data available", "games": []}
         
         # Calculate KPIs - convert numpy types to Python types
-        total_games = int(len(games_data))
+        total_games = len(games_data)
         total_players = int(games_data['unique_players'].sum()) if 'unique_players' in games_data.columns else 0
-        total_volume = float(games_data['total_volume_ron_sent_to_game'].sum()) if 'total_volume_ron_sent_to_game' in games_data.columns else 0
+        total_volume = float(games_data['total_volume_ron_sent_to_game'].sum()) if 'total_volume_ron_sent_to_game' in games_data.columns else 0.0
         total_transactions = int(games_data['transaction_count'].sum()) if 'transaction_count' in games_data.columns else 0
+
+        # Add safety checks
+        total_players = total_players if not pd.isna(total_players) else 0
+        total_volume = total_volume if not pd.isna(total_volume) else 0.0
+        total_transactions = total_transactions if not pd.isna(total_transactions) else 0
         
         return {
             "kpis": {
@@ -1058,12 +1071,20 @@ async def get_dashboard_overview(time_filter: str = Query("Last 30 days")):
         games_data = data.get('games_overall_activity', pd.DataFrame())
         gaming_kpis = {}
         if not games_data.empty:
-            gaming_kpis = {
-                "total_games": len(games_data),
-                "total_players": int(games_data['unique_players'].sum()) if 'unique_players' in games_data.columns else 0,
-                "total_volume": float(games_data['total_volume_ron_sent_to_game'].sum()) if 'total_volume_ron_sent_to_game' in games_data.columns else 0,
-                "total_transactions": int(games_data['transaction_count'].sum()) if 'transaction_count' in games_data.columns else 0
-            }
+            try:
+                total_players = int(games_data['unique_players'].sum()) if 'unique_players' in games_data.columns else 0
+                total_volume = float(games_data['total_volume_ron_sent_to_game'].sum()) if 'total_volume_ron_sent_to_game' in games_data.columns else 0
+                total_transactions = int(games_data['transaction_count'].sum()) if 'transaction_count' in games_data.columns else 0
+                
+                gaming_kpis = {
+                    "total_games": len(games_data),
+                    "total_players": total_players if not pd.isna(total_players) else 0,
+                    "total_volume": total_volume if not pd.isna(total_volume) else 0.0,
+                    "total_transactions": total_transactions if not pd.isna(total_transactions) else 0
+                }
+            except Exception as e:
+                logger.error(f"Error calculating gaming KPIs: {e}")
+                gaming_kpis = {"total_games": 0, "total_players": 0, "total_volume": 0.0, "total_transactions": 0}
         
         # NFT KPIs
         nft_data = data.get('nft_collections', pd.DataFrame())
