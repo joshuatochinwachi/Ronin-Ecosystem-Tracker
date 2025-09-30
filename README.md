@@ -105,7 +105,7 @@ dune_queries = {
     'wron_volume_liquidity': 5784210,
     'wron_trading_hourly': 5785066,
     'wron_weekly_segmentation': 5785149,
-    'nft_collections': 5792320
+    'nft_collections': 5792313
 }
 ```
 
