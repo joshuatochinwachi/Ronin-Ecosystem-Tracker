@@ -13,6 +13,7 @@ This platform aggregates and visualizes data from 13 different data sources (1 C
 
 1. **FastAPI Backend** - Raw data pass-through with 24-hour intelligent caching
 2. **Next.js Frontend** - Modern, interactive web dashboard with real-time updates
+3. **Streamlit App** - Professional analytics interface with advanced visualizations
 
 ## ✨ Core Features
 
