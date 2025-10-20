@@ -163,6 +163,7 @@ ronin-ecosystem-tracker/
 │  └── public/                     # Static assets
 ├── Notebooks/                   # Jupyter notebooks for analysis
 └── README.md                   # This file
+```
 
 ## 🔧 Configuration
 
