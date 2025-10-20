@@ -5,7 +5,6 @@ A comprehensive, production-grade analytics platform for the Ronin blockchain ga
 ## 🌐 Live Applications
 
 - **Primary App/Dashboard (Next.js)**: [https://ronin-network-tracker.vercel.app](https://ronin-network-tracker.vercel.app)
-- **Analytics App (Streamlit)**: [https://ronin-ecosystem-tracker.streamlit.app](https://ronin-ecosystem-tracker.streamlit.app)
 - **API Backend**: Hosted on Railway
 
 ## 📊 Project Overview
@@ -14,7 +13,6 @@ This platform aggregates and visualizes data from 13 different data sources (1 C
 
 1. **FastAPI Backend** - Raw data pass-through with 24-hour intelligent caching
 2. **Next.js Frontend** - Modern, interactive web dashboard with real-time updates
-3. **Streamlit App** - Professional analytics interface with advanced visualizations
 
 ## ✨ Core Features
 
@@ -42,10 +40,10 @@ This platform aggregates and visualizes data from 13 different data sources (1 C
 
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│  External APIs  │────▶│  FastAPI Backend │────▶│  Applications   │
+│  External APIs  │────▶│  FastAPI Backend │────▶│  Application   │
 │                 │     │  (Railway)       │     │                 │
 │ • Dune (x12)    │     │                  │     │ • Next.js Web   │
-│ • CoinGecko     │     │ • 24hr Cache     │     │ • Streamlit App │
+│ • CoinGecko     │     │ • 24hr Cache     │     │                 │
 └─────────────────┘     │ • Rate Limiting  │     └─────────────────┘
                         │ • Data Proxy     │
                         └──────────────────┘
@@ -56,85 +54,14 @@ This platform aggregates and visualizes data from 13 different data sources (1 C
 1. **External APIs** → FastAPI fetches from Dune Analytics & CoinGecko
 2. **Caching Layer** → 24-hour cache with joblib for persistent storage
 3. **API Endpoints** → RESTful endpoints serve raw, unmanipulated data
-4. **Frontend Apps** → Next.js and Streamlit consume API data
+4. **Frontend App** → Next.js consume API data
 5. **User Interface** → Interactive visualizations and real-time updates
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- Python 3.8+
-- Node.js 18+ (for Next.js frontend)
-- API Keys:
-  - Dune Analytics API key
-  - CoinGecko Pro API key
-
-### Backend Setup (FastAPI)
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/ronin-ecosystem-tracker.git
-   cd ronin-ecosystem-tracker
-   ```
-
-2. **Install Python dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Configure environment variables**
-   
-   Create a `.env` file:
-   ```env
-   DEFI_JOSH_DUNE_QUERY_API_KEY=your_dune_api_key
-   COINGECKO_PRO_API_KEY=your_coingecko_pro_api_key
-   PORT=8000
-   ```
-
-4. **Run the FastAPI server**
-   ```bash
-   uvicorn main:app --host 0.0.0.0 --port 8000
-   ```
-
-   API will be available at `http://localhost:8000`
-
-### Streamlit App Setup
-
-```bash
-streamlit run ronin_tracker_app.py
-```
-
-Access at `http://localhost:8501`
-
-### Next.js Frontend Setup
-
-1. **Navigate to frontend directory**
-   ```bash
-   cd frontend  # or your frontend directory name
-   ```
-
-2. **Install dependencies**
-   ```bash
-   npm install
-   # or
-   yarn install
-   ```
-
-3. **Run development server**
-   ```bash
-   npm run dev
-   # or
-   yarn dev
-   ```
-
-   Dashboard available at `http://localhost:3000`
 
 ## 📡 API Documentation
 
 ### Base URL
 ```
 Production: https://web-production-4fae.up.railway.app
-Local: http://localhost:8000
 ```
 
 ### Key Endpoints
@@ -162,10 +89,6 @@ Local: http://localhost:8000
 - `POST /api/cache/clear` - Clear all cached data
 - `GET /api/bulk/all` - Get all data sources at once
 
-#### Interactive Documentation
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
-
 ## 🛠️ Technology Stack
 
 ### Backend (FastAPI)
@@ -185,13 +108,6 @@ Local: http://localhost:8000
 - **Icons**: Lucide React
 - **Deployment**: Vercel
 
-### Analytics App (Streamlit)
-- **Framework**: Streamlit
-- **Visualizations**: Plotly
-- **Data Processing**: Pandas, NumPy
-- **Styling**: Custom CSS
-- **Deployment**: Streamlit Cloud
-
 ## 📁 Project Structure
 
 ```
@@ -202,24 +118,51 @@ ronin-ecosystem-tracker/
 ├── .env                         # Environment variables (create locally)
 ├── raw_data_cache/             # Cache directory (auto-created)
 ├── frontend/                    # Next.js application
-│   ├── app/
-│   │   ├── api/                # Next.js API routes (proxy)
-│   │   ├── layout.tsx          # Root layout
-│   │   ├── page.tsx            # Main dashboard
-│   │   └── globals.css         # Global styles
-│   ├── components/
-│   │   ├── ui/                 # shadcn/ui components
-│   │   ├── animated-background.tsx
-│   │   ├── gaming-economy.tsx
-│   │   ├── katana-dex.tsx
-│   │   ├── network-activity.tsx
-│   │   ├── nft-marketplace.tsx
-│   │   └── token-holders.tsx
-│   ├── hooks/                  # Custom React hooks
-│   └── lib/                    # Utility functions
+│  ├── app/
+│  │   ├── api/                    # Next.js API routes (proxy layer)
+│  │   │   ├── coingecko/
+│  │   │   │   └── ron/
+│  │   │   │       └── route.ts    # RON token data endpoint
+│  │   │   └── dune/
+│  │   │       ├── games-overall/
+│  │   │       ├── games-daily/
+│  │   │       ├── ronin-daily/
+│  │   │       ├── retention/
+│  │   │       ├── holders/
+│  │   │       ├── segmented-holders/
+│  │   │       ├── trade-pairs/
+│  │   │       ├── whales/
+│  │   │       ├── volume-liquidity/
+│  │   │       ├── hourly/
+│  │   │       ├── weekly-segmentation/
+│  │   │       └── nft-collections/
+│  │   ├── layout.tsx              # Root layout with theme provider
+│  │   ├── page.tsx                # Main dashboard page
+│  │   └── globals.css             # Global styles and design tokens
+│  ├── components/
+│  │   ├── ui/                     # shadcn/ui components
+│  │   ├── animated-background.tsx # Particle animation system
+│  │   ├── gaming-economy.tsx      # Gaming metrics section
+│  │   ├── header.tsx              # Dashboard header with refresh
+│  │   ├── hero-section.tsx        # RON token overview
+│  │   ├── katana-dex.tsx          # DEX analytics section
+│  │   ├── network-activity.tsx    # Network activity charts
+│  │   ├── network-health.tsx      # Network health metrics
+│  │   ├── nft-collections.tsx     # NFT collections table
+│  │   ├── nft-marketplace.tsx     # NFT marketplace section
+│  │   ├── retention-heatmap.tsx   # Cohort retention heatmap
+│  │   ├── theme-provider.tsx      # Dark/light mode provider
+│  │   ├── theme-toggle.tsx        # Theme switcher button
+│  │   ├── token-holders.tsx       # Token holder analytics
+│  │   └── token-metrics.tsx       # Token metrics cards
+│  ├── hooks/
+│  │   ├── use-mobile.tsx          # Mobile detection hook
+│  │   └── use-toast.ts            # Toast notification hook
+│  ├── lib/
+│  │   └── utils.ts                # Utility functions (cn, etc.)
+│  └── public/                     # Static assets
 ├── Notebooks/                   # Jupyter notebooks for analysis
 └── README.md                   # This file
-```
 
 ## 🔧 Configuration
 
@@ -252,43 +195,6 @@ dune_queries = {
 - **Background Tasks**: Auto-refresh every 24 hours
 - **Efficiency**: Shared cache across all users
 
-## 🚢 Deployment
-
-### FastAPI Backend (Railway)
-
-1. Connect your GitHub repository to Railway
-2. Add environment variables in Railway dashboard
-3. Railway auto-deploys from your main branch
-
-### Next.js Frontend (Vercel)
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/yourusername/ronin-ecosystem-tracker)
-
-1. Connect repository to Vercel
-2. Vercel automatically builds and deploys
-3. Configure environment variables if needed
-
-### Streamlit App (Streamlit Cloud)
-
-1. Connect repository to Streamlit Cloud
-2. Add API keys in app settings:
-   - `DEFI_JOSH_DUNE_QUERY_API_KEY`
-   - `COINGECKO_PRO_API_KEY`
-3. Auto-deploys from main branch
-
-## 🔐 API Keys Setup
-
-### Dune Analytics API
-1. Sign up at [Dune Analytics](https://dune.com)
-2. Navigate to Settings → API Keys
-3. Generate a new API key
-4. Add to environment as `DEFI_JOSH_DUNE_QUERY_API_KEY`
-
-### CoinGecko Pro API
-1. Sign up at [CoinGecko Pro](https://www.coingecko.com/en/api/pricing)
-2. Get your API key from the dashboard
-3. Add to environment as `COINGECKO_PRO_API_KEY`
-
 ## 📈 Performance Considerations
 
 - **API Rate Limits**: 24-hour caching minimizes API calls
@@ -311,6 +217,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
+- **KTTY World** - For inspiring this analytics tool
 - **Ronin Network** - For building an innovative gaming-focused blockchain
 - **Dune Analytics** - For comprehensive on-chain data access
 - **CoinGecko** - For reliable market data and pricing
