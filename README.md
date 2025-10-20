@@ -168,27 +168,6 @@ ronin-ecosystem-tracker/
 
 ## 🔧 Configuration
 
-### Dune Query IDs
-
-The platform uses these predefined Dune Analytics query IDs:
-
-```python
-dune_queries = {
-    'games_overall_activity': 5779698,
-    'games_daily_activity': 5781579,
-    'ronin_daily_activity': 5779439,
-    'user_activation_retention': 5783320,
-    'ron_current_holders': 5783623,
-    'ron_segmented_holders': 5785491,
-    'wron_active_trade_pairs': 5783967,
-    'wron_whale_tracking': 5784215,
-    'wron_volume_liquidity': 5784210,
-    'wron_trading_hourly': 5785066,
-    'wron_weekly_segmentation': 5785149,
-    'nft_collections': 5792313
-}
-```
-
 ### Caching System
 
 - **Duration**: 24-hour cache lifecycle
@@ -204,14 +183,6 @@ dune_queries = {
 - **Lazy Loading**: Progressive component loading for better UX
 - **Auto-refresh**: Smart revalidation with SWR
 - **Background Tasks**: Non-blocking data refresh operations
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
 
 ## 📄 License
 
