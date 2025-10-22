@@ -134,3 +134,15 @@
 html {
   scroll-behavior: smooth;
 }
+
+/* Hide v0 badge injected by Vercel */
+iframe[src*="v0"],
+iframe[title*="v0"],
+[data-v0-badge],
+a[href*="v0.dev"],
+div:has(> a[href*="v0.dev"]) {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

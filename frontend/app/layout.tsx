@@ -14,7 +14,7 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Ronin Ecosystem Tracker",
   description: "Real-time blockchain analytics for the Ronin gaming ecosystem",
-  generator: "v0.app",
+    generator: 'v0.app'
 }
 
 export default function RootLayout({
@@ -29,6 +29,31 @@ export default function RootLayout({
           <Suspense fallback={null}>{children}</Suspense>
         </ThemeProvider>
         <Analytics />
+        <script dangerouslySetInnerHTML={{__html: `
+          (function() {
+            function removeBadge() {
+              const selectors = [
+                'a[href*="v0.dev"]',
+                'a[href*="v0"]',
+                'iframe[src*="v0"]',
+                '[data-v0-badge]',
+                '[data-v0]'
+              ];
+              selectors.forEach(selector => {
+                document.querySelectorAll(selector).forEach(el => {
+                  el.style.display = 'none';
+                  el.remove();
+                });
+              });
+            }
+            if (document.readyState === 'loading') {
+              document.addEventListener('DOMContentLoaded', removeBadge);
+            } else {
+              removeBadge();
+            }
+            setInterval(removeBadge, 500);
+          })();
+        `}} />
       </body>
     </html>
   )
