@@ -1,28 +1,19 @@
 "use client"
 
-import { RefreshCw, Moon, Sun } from "lucide-react"
+import { Moon, Sun } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useTheme } from "next-themes"
 
 export function Header() {
-  const [isRefreshing, setIsRefreshing] = useState(false)
   const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
 
-  const handleRefresh = async () => {
-    setIsRefreshing(true)
-    try {
-      await fetch("https://web-production-4fae.up.railway.app/api/cache/refresh", {
-        method: "POST",
-      })
-      // Reload the page to fetch fresh data
-      window.location.reload()
-    } catch (error) {
-      console.error("Refresh failed:", error)
-    } finally {
-      setTimeout(() => setIsRefreshing(false), 1000)
-    }
-  }
+  // Prevent hydration mismatch by only rendering theme-dependent content after mount
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
 
   return (
     <header className="border-b border-border bg-card/50 backdrop-blur-lg sticky top-0 z-50">
@@ -43,19 +34,20 @@ export function Header() {
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             className="gap-2"
           >
-            {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            {theme === "dark" ? "Light" : "Dark"}
+            {mounted && (
+              <>
+                {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                {theme === "dark" ? "Light" : "Dark"}
+              </>
+            )}
+            {!mounted && (
+              <>
+                <Moon className="w-4 h-4" />
+                Theme
+              </>
+            )}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            className="gap-2 bg-transparent"
-          >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
+
         </div>
       </div>
     </header>

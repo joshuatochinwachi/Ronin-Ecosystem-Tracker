@@ -14,8 +14,10 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Ronin Ecosystem Tracker",
   description: "Real-time blockchain analytics for the Ronin gaming ecosystem",
-    generator: 'v0.app'
+  generator: 'v0.app'
 }
+
+import { SWRProvider } from "@/components/swr-provider"
 
 export default function RootLayout({
   children,
@@ -26,10 +28,13 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={`font-sans ${inter.variable}`}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-          <Suspense fallback={null}>{children}</Suspense>
+          <SWRProvider>
+            <Suspense fallback={null}>{children}</Suspense>
+          </SWRProvider>
         </ThemeProvider>
         <Analytics />
-        <script dangerouslySetInnerHTML={{__html: `
+        <script dangerouslySetInnerHTML={{
+          __html: `
           (function() {
             function removeBadge() {
               const selectors = [

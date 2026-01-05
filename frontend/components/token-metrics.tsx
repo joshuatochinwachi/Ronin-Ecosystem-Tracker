@@ -3,6 +3,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import useSWR from "swr"
+import { useState, useEffect, useMemo } from "react"
+import { ChartSkeleton, MetricCardSkeleton } from "@/components/skeletons"
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json())
 
@@ -11,20 +13,36 @@ export function TokenMetrics() {
     refreshInterval: 60000,
   })
 
-  console.log("[v0] Token Metrics - Full data:", data)
+  const [isMounted, setIsMounted] = useState(false)
 
-  if (!data?.data?.market_data) return null
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
-  const marketData = data.data.market_data
+  if (!data?.data?.[0]?.market_data) {
+    return (
+      <section className="space-y-4">
+        <h2 className="text-2xl font-bold text-foreground">Detailed Token Metrics</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <MetricCardSkeleton />
+          <MetricCardSkeleton />
+        </div>
+      </section>
+    )
+  }
 
-  console.log("[v0] Token Metrics - Market data:", marketData)
+  const marketData = data.data[0].market_data
 
-  // Mock sparkline data for visualization
-  const priceData =
-    marketData.sparkline_7d?.price?.map((price: number, index: number) => ({
-      time: index,
-      price: price,
-    })) || []
+  const getPriceChangeColor = (change: number) => {
+    if (change > 0) return "text-green-400"
+    if (change < 0) return "text-red-400"
+    return "text-muted-foreground"
+  }
+
+  const formatPriceChange = (change: number) => {
+    const sign = change > 0 ? "+" : ""
+    return `${sign}${change.toFixed(2)}%`
+  }
 
   return (
     <section className="space-y-4">
@@ -33,44 +51,65 @@ export function TokenMetrics() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card className="glass-card">
           <CardHeader>
-            <CardTitle className="text-lg">7-Day Price Trend</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Last updated: {new Date(data.timestamp).toLocaleString()} UTC
+            <CardTitle className="text-lg">Price Performance</CardTitle>
+            <p className="text-xs text-muted-foreground" suppressHydrationWarning>
+              Last updated: {new Date(data.metadata?.last_updated).toLocaleString()} UTC
             </p>
           </CardHeader>
           <CardContent>
-            {priceData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={250}>
-                <AreaChart data={priceData}>
-                  <defs>
-                    <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="time" className="text-muted-foreground" />
-                  <YAxis className="text-muted-foreground" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "8px",
-                    }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="price"
-                    stroke="hsl(var(--chart-1))"
-                    fillOpacity={1}
-                    fill="url(#colorPrice)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="text-muted-foreground h-[250px] flex items-center justify-center">
-                No sparkline data available
+            {isMounted ? (
+              <div className="space-y-6">
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground mb-2">24 Hours</p>
+                    <p className={`text-2xl font-bold ${getPriceChangeColor(marketData.price_change_percentage_24h)}`}>
+                      {formatPriceChange(marketData.price_change_percentage_24h)}
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground mb-2">7 Days</p>
+                    <p className={`text-2xl font-bold ${getPriceChangeColor(marketData.price_change_percentage_7d)}`}>
+                      {formatPriceChange(marketData.price_change_percentage_7d)}
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground mb-2">30 Days</p>
+                    <p className={`text-2xl font-bold ${getPriceChangeColor(marketData.price_change_percentage_30d)}`}>
+                      {formatPriceChange(marketData.price_change_percentage_30d)}
+                    </p>
+                  </div>
+                </div>
+                <div className="pt-4 border-t border-border">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-muted-foreground">Current Price</p>
+                      <p className="text-lg font-semibold text-foreground">
+                        ${marketData.current_price?.usd?.toFixed(4) || "N/A"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">24h Change</p>
+                      <p className="text-lg font-semibold text-foreground">
+                        ${marketData.price_change_24h?.toFixed(6) || "N/A"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">24h High</p>
+                      <p className="text-sm font-medium text-green-400">
+                        ${marketData.high_24h?.usd?.toFixed(4) || "N/A"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">24h Low</p>
+                      <p className="text-sm font-medium text-red-400">
+                        ${marketData.low_24h?.usd?.toFixed(4) || "N/A"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
+            ) : (
+              <ChartSkeleton height={250} />
             )}
           </CardContent>
         </Card>

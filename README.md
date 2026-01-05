@@ -4,7 +4,7 @@ A comprehensive, production-grade analytics platform for the Ronin blockchain ga
 
 ## 🌐 Live Applications
 
-- **Primary App/Dashboard (Next.js)**: [https://ronin-network-tracker.vercel.app](https://ronin-network-tracker.vercel.app)
+- **Primary App/Dashboard (Next.js)**: [https://www.ronhub.io/analytics](https://www.ronhub.io/analytics)
 - **API Backend**: Hosted on Railway
 
 ## 📊 Project Overview

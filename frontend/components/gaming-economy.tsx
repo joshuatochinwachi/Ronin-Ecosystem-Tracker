@@ -5,6 +5,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DataTable } from "@/components/data-table"
 import { RetentionHeatmap } from "@/components/retention-heatmap"
 import useSWR from "swr"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useState, useMemo } from "react"
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json())
 
@@ -12,6 +14,7 @@ export function GamingEconomy() {
   const { data: overallData, error: overallError } = useSWR("/api/dune/games-overall", fetcher)
   const { data: dailyData, error: dailyError } = useSWR("/api/dune/games-daily", fetcher)
   const { data: retentionData, error: retentionError } = useSWR("/api/dune/retention", fetcher)
+  const [selectedGame, setSelectedGame] = useState<string>("all")
 
   const overallColumns = [
     { key: "game_project", label: "Game Name" },
@@ -62,8 +65,9 @@ export function GamingEconomy() {
     },
   ]
 
-  const processedRetentionData = retentionData?.data
-    ? retentionData.data.map((item: any) => ({
+  const processedRetentionData = useMemo(() => {
+    return retentionData?.data
+      ? retentionData.data.map((item: any) => ({
         cohort_week: item["cohort week"] ? item["cohort week"].split("T")[0] : "Unknown",
         game_project: item.game_project || "Unknown",
         new_users: item["new users"] || 0,
@@ -80,20 +84,34 @@ export function GamingEconomy() {
         week_11: item["% retention 11 weeks later"] || null,
         week_12: item["% retention 12 weeks later"] || null,
       }))
-    : []
+      : []
+  }, [retentionData])
+
+  const uniqueGames = useMemo(() => {
+    const games = new Set(processedRetentionData.map((item: any) => item.game_project))
+    return Array.from(games).sort()
+  }, [processedRetentionData])
+
+  const filteredRetentionData = useMemo(() => {
+    if (selectedGame === "all") return processedRetentionData
+    return processedRetentionData.filter((item: any) => item.game_project === selectedGame)
+  }, [processedRetentionData, selectedGame])
 
   return (
     <section className="space-y-4">
       <h2 className="text-2xl font-bold text-foreground">Gaming Economy Dashboard</h2>
 
       <Tabs defaultValue="overall" className="w-full">
+        {/* ... existing tabs list ... */}
         <TabsList className="grid w-full grid-cols-3 lg:w-auto">
           <TabsTrigger value="overall">Overall Activity</TabsTrigger>
           <TabsTrigger value="daily">Daily Activity</TabsTrigger>
           <TabsTrigger value="retention">User Retention</TabsTrigger>
         </TabsList>
 
+        {/* ... existing tabs content ... */}
         <TabsContent value="overall" className="space-y-4">
+          {/* ... existing content ... */}
           <Card className="glass-card">
             <CardHeader>
               <CardTitle>Games Overall Activity</CardTitle>
@@ -116,6 +134,7 @@ export function GamingEconomy() {
         </TabsContent>
 
         <TabsContent value="daily" className="space-y-4">
+          {/* ... existing content ... */}
           {dailyData?.data ? (
             <Card className="glass-card">
               <CardHeader>
@@ -148,22 +167,38 @@ export function GamingEconomy() {
         <TabsContent value="retention" className="space-y-4">
           <Card className="glass-card">
             <CardHeader>
-              <CardTitle>User Activation & Retention Cohort Analysis</CardTitle>
-              <CardDescription className="text-sm text-muted-foreground mt-2">
-                This analyzes weekly user activation and retention across these Ronin games. It identifies when users
-                first interact with a sector (activation), then tracks their engagement in subsequent weeks to measure
-                retention patterns. The results provide cohort-based insights into user growth, stickiness, and
-                game-level performance over time.
-              </CardDescription>
-              {retentionData?.metadata && (
-                <p className="text-xs text-muted-foreground mt-2">
-                  Last updated: {new Date(retentionData.metadata.last_updated).toLocaleString()} UTC
-                </p>
-              )}
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <CardTitle>User Activation & Retention Cohort Analysis</CardTitle>
+                  <CardDescription className="text-sm text-muted-foreground mt-2">
+                    This analyzes weekly user activation and retention across these Ronin games.
+                  </CardDescription>
+                  {retentionData?.metadata && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Last updated: {new Date(retentionData.metadata.last_updated).toLocaleString()} UTC
+                    </p>
+                  )}
+                </div>
+                <div className="w-[200px]">
+                  <Select value={selectedGame} onValueChange={setSelectedGame}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Game" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Games</SelectItem>
+                      {uniqueGames.map((game: any) => (
+                        <SelectItem key={game} value={game}>
+                          {game}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               {retentionData?.data ? (
-                <RetentionHeatmap data={processedRetentionData} />
+                <RetentionHeatmap data={filteredRetentionData} />
               ) : retentionError ? (
                 <div className="text-destructive">Error loading retention data</div>
               ) : (
