@@ -160,10 +160,17 @@ class CacheManager:
             logger.error(f"Cache write error for {key}: {e}")
     
     async def fetch_coingecko_raw(self) -> dict:
-        """Fetch raw CoinGecko data - NO MANIPULATION"""
+        """Fetch raw CoinGecko data - NO MANIPULATION (Free API with key)"""
         try:
-            async with aiohttp.ClientSession(headers=self.session_headers) as session:
-                url = "https://pro-api.coingecko.com/api/v3/coins/ronin"
+            # Setup headers with API key
+            headers = {}
+            if config.coingecko_api_key:
+                headers['x-cg-demo-api-key'] = config.coingecko_api_key  # Free tier uses different header
+            
+            async with aiohttp.ClientSession(headers=headers) as session:
+                # Use FREE API endpoint
+                url = "https://api.coingecko.com/api/v3/coins/ronin"
+                
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
                     response.raise_for_status()
                     data = await response.json()
